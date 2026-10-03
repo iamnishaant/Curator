@@ -1,0 +1,66 @@
+{
+  "scenario": "S-A",
+  "scenario_file": "configs\\sim\\scenario_sa.yaml",
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "methods": [
+    "uniform",
+    "random",
+    "static_oracle",
+    "myopic_oracle",
+    "dp_oracle"
+  ],
+  "summary": {
+    "uniform": {
+      "mean": 0.5740000000000001,
+      "std": 0.016312912404322862,
+      "n": 5,
+      "mean_rounds": 26.0,
+      "mean_cost_usd": 2.075423300972371,
+      "seconds": 0.05,
+      "oracle_gap_closure": 0.0
+    },
+    "random": {
+      "mean": 0.5723333333333332,
+      "std": 0.025592967784139484,
+      "n": 5,
+      "mean_rounds": 25.4,
+      "mean_cost_usd": 2.031577028420891,
+      "seconds": 0.04,
+      "oracle_gap_closure": -0.011286681715576638
+    },
+    "static_oracle": {
+      "mean": 0.7216666666666667,
+      "std": 0.012801909579781017,
+      "n": 5,
+      "mean_rounds": 25.8,
+      "mean_cost_usd": 2.063354670459323,
+      "seconds": 0.11,
+      "oracle_gap_closure": 1.0
+    },
+    "myopic_oracle": {
+      "mean": 0.6526666666666666,
+      "std": 0.025620087605019746,
+      "n": 5,
+      "mean_rounds": 25.2,
+      "mean_cost_usd": 2.0177349893606498,
+      "seconds": 0.04,
+      "oracle_gap_closure": 0.5327313769751687
+    },
+    "dp_oracle": {
+      "mean": 0.6910000000000001,
+      "std": 0.021232836205588076,
+      "n": 5,
+      "mean_rounds": 25.6,
+      "mean_cost_usd": 2.0477917167855977,
+      "seconds": 2.35,
+      "oracle_gap_closure": 0.7923250564334088
+    }
+  },
+  "generated_utc": "20261003T034514Z"
+}

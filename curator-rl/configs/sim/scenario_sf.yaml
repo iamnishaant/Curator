@@ -1,0 +1,34 @@
+# S-F (Roadmap F.3): 3 envs, too-hard environment unlockable via transfer.
+# Question: starvation and revival (exploration floor). Training 'normal'
+# pushes 'unlockable' over its difficulty wall through transfer.
+scenario_id: S-F
+description: too-hard arm unlocked by transfer from the normal arm
+budget_usd: 2.0
+max_rounds: 200
+steps_per_round: 5
+prompts_per_step: 16
+group_size: 8
+world:
+  skill_noise_std: 0.003
+  cost_lognormal_sigma: 0.10
+  rollout_concentration: 25.0
+  benchmark_items: 200
+calib:
+  enabled: false
+oracle:
+  budget_units: 100
+  simplex_step: 0.1
+envs:
+  - env_id: normal
+    difficulty: 0.5
+    eta: 0.012
+    cost_usd_per_prompt: 0.001
+    transfer_out: {unlockable: 1.2}
+  - env_id: unlockable
+    difficulty: 3.5      # p0 = sigmoid(-7) ~= 0.001; rises via transfer
+    eta: 0.03
+    cost_usd_per_prompt: 0.0015
+  - env_id: filler
+    difficulty: 1.0
+    eta: 0.010
+    cost_usd_per_prompt: 0.0008

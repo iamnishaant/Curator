@@ -1,0 +1,33 @@
+# S-E (Roadmap F.3): 3 envs, abrupt regime change (difficulty shift) in one.
+# Question: discounting vs stationary UCB (H4). The drifted env is the best
+# arm early and nearly worthless after the shift (learnability collapses).
+scenario_id: S-E
+description: abrupt difficulty shift at round 12; value of adaptation
+budget_usd: 2.0
+max_rounds: 200
+steps_per_round: 5
+prompts_per_step: 16
+group_size: 8
+world:
+  skill_noise_std: 0.003
+  cost_lognormal_sigma: 0.10
+  rollout_concentration: 25.0
+  benchmark_items: 200
+calib:
+  enabled: false
+oracle:
+  simplex_step: 0.1
+envs:
+  - env_id: drifts
+    difficulty: 0.3
+    eta: 0.015
+    cost_usd_per_prompt: 0.001
+    drift: {round: 12, shift: -2.5}   # p -> ~1, learnability -> ~0
+  - env_id: steady
+    difficulty: 0.7
+    eta: 0.012
+    cost_usd_per_prompt: 0.001
+  - env_id: slow
+    difficulty: 1.2
+    eta: 0.012
+    cost_usd_per_prompt: 0.001

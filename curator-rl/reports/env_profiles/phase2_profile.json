@@ -1,0 +1,29 @@
+{
+  "generated_at_utc": "2026-10-02T20:49:30Z",
+  "envs": [
+    {
+      "env_id": "countdown",
+      "prompts_sampled": 200,
+      "prompt_generation_per_s": 63.9,
+      "verifier_mean_seconds_gold": 0.000892,
+      "verifier_mean_seconds_garbage": 0.000692,
+      "gold_success_rate": 1.0
+    },
+    {
+      "env_id": "gsm8k",
+      "prompts_sampled": 200,
+      "prompt_generation_per_s": 58441.9,
+      "verifier_mean_seconds_gold": 0.000574,
+      "verifier_mean_seconds_garbage": 0.000224,
+      "gold_success_rate": 1.0
+    },
+    {
+      "env_id": "noisy",
+      "prompts_sampled": 200,
+      "prompt_generation_per_s": 83507.3,
+      "verifier_mean_seconds_gold": 0.00025,
+      "verifier_mean_seconds_garbage": 0.000234,
+      "gold_success_rate": 1.0
+    }
+  ]
+}

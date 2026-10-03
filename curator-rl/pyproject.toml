@@ -1,0 +1,58 @@
+[project]
+name = "curator-rl"
+version = "0.1.0"
+description = "Cost-aware environment selection for agentic RL training of LLMs (the Curator scheduler layer)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "CURATOR team" }]
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pandas>=2.1",
+    "pyarrow>=14",
+    "pydantic>=2.5",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "hypothesis>=6.100",
+    "ruff>=0.5",
+]
+train = []   # TRL/transformers/peft/torch pinned in v1 Phase 7, behind the versions spike
+sim = []
+
+[project.scripts]
+curator = "curator_rl.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "gpu: requires a GPU (deselected by default in CI)",
+]
+
+[tool.coverage.run]
+source = ["curator_rl.core"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "E501",  # long lines in tables/docs strings; kept readable
+    "B905",  # zip() without strict=; all uses zip equal-length same-package tuples
+]

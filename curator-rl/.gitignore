@@ -1,0 +1,30 @@
+# data (never commit raw data, processed data, or the sealed test)
+data/raw/
+data/processed/
+data/test_sealed/
+reports/test_access_log.jsonl
+
+# run outputs
+checkpoints/
+logs/
+runs/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# tooling
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# editors
+.idea/
+.vscode/

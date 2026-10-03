@@ -1,0 +1,51 @@
+{
+  "scenario": "S-B",
+  "scenario_file": "configs\\sim\\scenario_sb.yaml",
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "methods": [
+    "uniform",
+    "static_oracle",
+    "myopic_oracle"
+  ],
+  "summary": {
+    "uniform": {
+      "mean": 0.410125,
+      "std": 0.008363487111645876,
+      "n": 10,
+      "mean_rounds": 24.0,
+      "mean_cost_usd": 2.041589453127002,
+      "seconds": 0.15,
+      "oracle_gap_closure": 0.0
+    },
+    "static_oracle": {
+      "mean": 0.4599375,
+      "std": 0.011189846898466107,
+      "n": 10,
+      "mean_rounds": 25.6,
+      "mean_cost_usd": 2.047910490814064,
+      "seconds": 9.57,
+      "oracle_gap_closure": 1.0
+    },
+    "myopic_oracle": {
+      "mean": 0.43962500000000004,
+      "std": 0.00709068246206088,
+      "n": 10,
+      "mean_rounds": 25.8,
+      "mean_cost_usd": 2.0607610346300653,
+      "seconds": 0.17,
+      "oracle_gap_closure": 0.592220828105396
+    }
+  },
+  "generated_utc": "20261003T034554Z"
+}

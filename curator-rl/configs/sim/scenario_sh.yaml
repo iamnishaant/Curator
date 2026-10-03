@@ -1,0 +1,47 @@
+# S-H (Roadmap F.3): 5 envs, one valuable environment arrives late (round 8).
+# Question: cold start. Uniform never wastes on the late env (masked before
+# arrival) but wastes on the weak early portfolio; benchmark weights favour
+# the valuable domains.
+scenario_id: S-H
+description: late-arriving valuable env; weak early portfolio (easy + noisy)
+budget_usd: 2.0
+max_rounds: 200
+steps_per_round: 5
+prompts_per_step: 16
+group_size: 8
+world:
+  skill_noise_std: 0.003
+  cost_lognormal_sigma: 0.10
+  rollout_concentration: 25.0
+  benchmark_items: 200
+calib:
+  enabled: false
+oracle:
+  simplex_step: 0.1
+envs:
+  - env_id: easy
+    difficulty: -1.2
+    eta: 0.015
+    cost_usd_per_prompt: 0.001
+    bench_weight: 0.10
+  - env_id: noisy
+    eta: 0.01
+    cost_usd_per_prompt: 0.001
+    noisy_q: 0.30
+    bench_weight: 0.10
+  - env_id: v1
+    difficulty: 0.4
+    eta: 0.012
+    cost_usd_per_prompt: 0.001
+    bench_weight: 0.30
+  - env_id: v2
+    difficulty: 0.7
+    eta: 0.012
+    cost_usd_per_prompt: 0.001
+    bench_weight: 0.25
+  - env_id: late
+    difficulty: 0.3
+    eta: 0.015
+    cost_usd_per_prompt: 0.001
+    late_start_round: 8
+    bench_weight: 0.25

@@ -1,0 +1,35 @@
+# S-C (Roadmap F.3): 4 envs with identical learning dynamics but costs spread
+# 1x..8x. Question: value of cost normalisation (H2).
+scenario_id: S-C
+description: equal gains, cost heterogeneity 1x..8x; cheapest arm dominates
+budget_usd: 2.0
+max_rounds: 200
+steps_per_round: 5
+prompts_per_step: 16
+group_size: 8
+world:
+  skill_noise_std: 0.003
+  cost_lognormal_sigma: 0.10
+  rollout_concentration: 25.0
+  benchmark_items: 200
+calib:
+  enabled: false
+oracle:
+  simplex_step: 0.1
+envs:
+  - env_id: c1x
+    difficulty: 0.5
+    eta: 0.012
+    cost_usd_per_prompt: 0.0005
+  - env_id: c2x
+    difficulty: 0.5
+    eta: 0.012
+    cost_usd_per_prompt: 0.001
+  - env_id: c4x
+    difficulty: 0.5
+    eta: 0.012
+    cost_usd_per_prompt: 0.002
+  - env_id: c8x
+    difficulty: 0.5
+    eta: 0.012
+    cost_usd_per_prompt: 0.004

@@ -1,0 +1,12 @@
+# Minimal smoke experiment: inherits from base.yaml via an include directive
+# handled by the loader as a plain merge (simplest: base values with overrides).
+include: ../base.yaml
+
+experiment:
+  name: smoke
+  tier: 0
+  method: uniform
+  seed: 0
+
+budget:
+  total_usd: 0.5

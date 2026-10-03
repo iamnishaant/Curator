@@ -1,0 +1,37 @@
+# S-D (Roadmap F.3): 4 envs with a transfer and interference matrix.
+# Question: credit rules C1 vs C2 (H5); oracle avoids the interferer.
+scenario_id: S-D
+description: helper->core positive transfer, interferer->core negative transfer
+budget_usd: 2.0
+max_rounds: 200
+steps_per_round: 5
+prompts_per_step: 16
+group_size: 8
+world:
+  skill_noise_std: 0.003
+  cost_lognormal_sigma: 0.10
+  rollout_concentration: 25.0
+  benchmark_items: 200
+calib:
+  enabled: false
+oracle:
+  simplex_step: 0.1
+envs:
+  - env_id: core
+    difficulty: 0.4
+    eta: 0.012
+    cost_usd_per_prompt: 0.001
+  - env_id: helper
+    difficulty: 0.2
+    eta: 0.012
+    cost_usd_per_prompt: 0.001
+    transfer_out: {core: 0.6}
+  - env_id: interferer
+    difficulty: 0.6
+    eta: 0.012
+    cost_usd_per_prompt: 0.001
+    transfer_out: {core: -0.5}
+  - env_id: extra
+    difficulty: 1.0
+    eta: 0.012
+    cost_usd_per_prompt: 0.001

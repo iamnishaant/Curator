@@ -1,0 +1,38 @@
+# S-A (Roadmap F.3): 3 envs — easy/saturating, valuable-slow, noisy.
+# Question: does an allocator drop the noisy and the saturated environment?
+scenario_id: S-A
+description: easy + valuable-slow + noisy; uniform wastes on noise and a saturated arm
+budget_usd: 2.0
+max_rounds: 200
+steps_per_round: 5
+prompts_per_step: 16
+group_size: 8
+world:
+  skill_noise_std: 0.003
+  cost_lognormal_sigma: 0.10
+  rollout_concentration: 25.0
+  benchmark_items: 200
+calib:
+  enabled: false
+  interval_rounds: 5
+  cost_usd: 0.01
+oracle:
+  budget_units: 100
+  simplex_step: 0.1
+envs:
+  - env_id: easy
+    skill0: 0.0
+    slope: 2.0
+    difficulty: -1.2      # p0 = sigmoid(2.4) ~= 0.92, saturates immediately
+    eta: 0.015
+    cost_usd_per_prompt: 0.001
+  - env_id: valuable
+    skill0: 0.0
+    slope: 2.0
+    difficulty: 0.8       # p0 ~= 0.17, big benchmark upside
+    eta: 0.012
+    cost_usd_per_prompt: 0.001
+  - env_id: noisy
+    eta: 0.01             # forced to 0 by the world (noisy type, F.2)
+    cost_usd_per_prompt: 0.001
+    noisy_q: 0.30

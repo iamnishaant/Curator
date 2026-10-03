@@ -1,0 +1,115 @@
+# CURATOR base configuration — every scientific hyperparameter (Roadmap E.7).
+# Starting values, never hard-coded in Python (Rule 5). Tuned on simulator
+# tuning seeds and the dev split only.
+
+experiment:
+  name: base
+  tier: 0            # 0 | "1R" | 1 | 2
+  method: curator    # uniform | static | lp | ucb | curator | ...
+  seed: 0
+
+budget:
+  total_usd: 10.0
+  usd_per_gpu_hour: 1.0   # 1.0 => report in normalised "GPU-units" (Roadmap H.3)
+  n_gpus: 1
+
+scheduler:
+  gamma: 0.95            # bandit forgetting factor (MDP discount is 1)
+  exploration_coef: 0.5  # UCB bonus coefficient (kappa)
+  tau: 1.0               # softmax temperature on normalised scores
+  epsilon: 0.10          # exploration floor => w_i >= epsilon/n_envs
+  warmup_rounds: 6       # uniform warm-up before the scheduler takes over
+  score_norm: zscore     # none | zscore | rank
+  cost_exponent: 1.0     # theta_c; 0 disables cost normalisation (ablation)
+  status_control: soft   # off | soft | hard
+  pull_unit: round       # scale of the UCB log argument
+
+signals:
+  lambda: 0.9            # discounted pooled pass-rate discount
+  lambda_fast: 0.7       # fast window (LP-A)
+  lambda_slow: 0.95      # slow window (LP-A)
+  lp_method: lp_a        # lp_a = fast-minus-slow | lp_b = slope | lp_c = non-overlapping windows
+  lp_use: signed         # signed | positive | abs
+  richness:
+    mode: mixed          # mixed | band | variance
+    band_lo: 0.1
+    band_hi: 0.9
+    variance_min: 0.05
+  prior:
+    alpha0: 1.0
+    beta0: 1.0
+  status:
+    n_min: 64            # min effective prompt groups before S1 exits
+    r_min: 3             # min rounds observed before S1 exits
+    p_sat: 0.85          # saturation pass-rate bound (lower interval bound)
+    p_hard: 0.10         # too-hard pass-rate bound (upper interval bound)
+    sr_hard: 0.10        # too-hard richness bound
+    z_up: 2.0            # LP z-score considered "progressing"
+    z_neg: 2.0           # negative LP z-score considered forgetting
+    hysteresis_p: 0.05
+    hysteresis_sr: 0.05
+    dwell_min: 5         # min rounds in a status before leaving it
+    consecutive_rounds: 3 # h: rounds a condition must hold before entering
+
+proxy:
+  alpha: 0.5
+  beta: 0.5
+  clip_l: 3.0            # LP clip bound in robust sigmas
+
+calib:
+  interval_rounds: 5     # K
+  target: domain         # domain (own-slice gains) | global (window gains)
+  k_min: 5               # min windows before the first alpha/beta fit
+  trust_region: 0.25     # max relative change of (alpha, beta) per fit
+  z_mis: 2.0             # S5 mismatch threshold (standardised residual)
+  mismatch_windows: 2    # q: consecutive windows to enter S5
+  mismatch_clear_windows: 2
+
+cost:
+  count_cpu_verifier_as_gpu_time: true
+  warmup_steps: 2
+
+data:
+  root: data
+  split_salt: curator-gate0-2026-10-d20   # frozen at Gate 0 (DECISIONS.md D-20)
+  calib_size: 300
+  dev_size: 300
+  envs:
+    gsm8k:
+      max_prompt_tokens: 512
+      max_completion_tokens: 512
+      verifier_timeout_s: 5.0
+      prior_usd_per_prompt: 0.001         # cold-start prior only (Roadmap H.5)
+    countdown:
+      n_numbers: 4
+      numbers_min: 1
+      numbers_max: 99
+      target_min: 10
+      target_max: 999
+      use_all_numbers: true
+      max_prompt_tokens: 512
+      max_completion_tokens: 512
+      verifier_timeout_s: 5.0
+      prior_usd_per_prompt: 0.001
+    noisy:
+      mode: random          # random | flip
+      q: 0.35               # Bernoulli(q) reward, independent of the outcome
+      flip_p: 0.5           # used in flip mode only
+      max_prompt_tokens: 512
+      max_completion_tokens: 512
+      verifier_timeout_s: 5.0
+      prior_usd_per_prompt: 0.001
+
+paths:
+  runs_root: runs
+
+logging:
+  fsync: false
+  schema_version: 1
+
+steps_per_round: 5      # R
+prompts_per_step: 16    # P
+group_size: 8           # G
+
+warmup:
+  total_rounds: 6

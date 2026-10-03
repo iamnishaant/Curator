@@ -1,0 +1,173 @@
+"""Scenario specifications and builders (Roadmap F.2/F.3, v1 Phase 3).
+
+A scenario is a parameter setting of the world model, not separate code: the
+scenario suite S-A..S-H is one YAML file each under `configs/sim/`. Parameters
+are validated with pydantic (strict, extra=forbid) so a typo in a scenario
+file fails loudly. `build_world` draws the concrete world for a seed; the
+same (scenario, seed) pair always yields the same world.
+
+Scenario suite (Roadmap F.3):
+
+| ID | N | Contents                                   | Primary question |
+|----|---|--------------------------------------------|------------------|
+| S-A | 3 | easy, valuable-slow, noisy                 | drop noisy/saturated? |
+| S-B | 8 | full portfolio analogue incl. noisy, too-hard | realistic comparison |
+| S-C | 4 | cost heterogeneity 1x..8x, equal gains     | cost normalisation (H2) |
+| S-D | 4 | transfer and interference matrix           | credit rules (H5) |
+| S-E | 3 | abrupt regime change in one env            | discounting (H4) |
+| S-F | 3 | too-hard unlockable via transfer           | starvation/revival |
+| S-G | 8 | evaluation-noise sweep (n_b, K)            | choice of K, set size |
+| S-H | 5 | late-arriving environment                  | cold start |
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import yaml
+from pydantic import BaseModel, ConfigDict, Field
+
+from curator_rl.core.seeding import SeedManager
+from curator_rl.simulator.world import SimEnvParams, SimWorld
+
+
+class _StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class GateCfg(_StrictModel):
+    prereq: str
+    theta: float = 0.0
+    slope: float = 4.0
+
+
+class DriftCfg(_StrictModel):
+    round: int = Field(ge=1)
+    shift: float
+
+
+class SimEnvCfg(_StrictModel):
+    env_id: str
+    skill0: float = 0.0
+    slope: float = 2.0
+    difficulty: float = 0.0
+    eta: float = Field(gt=0)
+    cost_usd_per_prompt: float = Field(gt=0)
+    transfer_out: dict[str, float] = Field(default_factory=dict)
+    noisy_q: float | None = None
+    gate: GateCfg | None = None
+    drift: DriftCfg | None = None
+    late_start_round: int = Field(default=0, ge=0)
+    cost_skill_slope: float = 0.0
+    bench_slope: float | None = None
+    bench_difficulty: float | None = None
+    bench_weight: float | None = None
+
+
+class CalibSimCfg(_StrictModel):
+    enabled: bool = False
+    interval_rounds: int = Field(default=5, ge=1)
+    cost_usd: float = Field(default=0.01, ge=0)
+
+
+class SimWorldCfg(_StrictModel):
+    skill_noise_std: float = Field(default=0.003, ge=0)
+    cost_lognormal_sigma: float = Field(default=0.10, ge=0)
+    rollout_concentration: float = Field(default=25.0, gt=0)
+    benchmark_items: int = Field(default=200, ge=1)
+
+
+class OracleCfg(_StrictModel):
+    budget_units: int = Field(default=40, ge=5)
+    simplex_step: float = Field(default=0.1, gt=0, le=0.5)
+    random_search_draws: int = Field(default=1500, ge=1)
+
+
+class ScenarioCfg(_StrictModel):
+    scenario_id: str
+    description: str = ""
+    budget_usd: float = Field(gt=0)
+    max_rounds: int = Field(default=200, ge=1)
+    steps_per_round: int = Field(default=5, ge=1)
+    prompts_per_step: int = Field(default=16, ge=1)
+    group_size: int = Field(default=8, ge=1)
+    calib: CalibSimCfg = CalibSimCfg()
+    world: SimWorldCfg = SimWorldCfg()
+    oracle: OracleCfg = OracleCfg()
+    envs: list[SimEnvCfg] = Field(min_length=1)
+
+    @property
+    def prompts_per_round(self) -> int:
+        return self.steps_per_round * self.prompts_per_step
+
+
+def load_scenario(path: Path) -> ScenarioCfg:
+    path = Path(path)
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"scenario file not found: {path}") from exc
+    except yaml.YAMLError as exc:
+        raise ValueError(f"scenario file {path} is not valid YAML: {exc}") from exc
+    try:
+        cfg = ScenarioCfg.model_validate(payload)
+    except Exception as exc:  # noqa: BLE001 - surfaced with the file name
+        raise ValueError(f"invalid scenario file {path}: {exc}") from exc
+    ids = [e.env_id for e in cfg.envs]
+    if len(set(ids)) != len(ids):
+        raise ValueError(f"duplicate env ids in {path}: {ids}")
+    for env in cfg.envs:
+        if env.gate is not None and env.gate.prereq not in ids:
+            raise ValueError(f"{path}: gate prereq '{env.gate.prereq}' is not a scenario env")
+        for target in env.transfer_out:
+            if target not in ids:
+                raise ValueError(f"{path}: transfer target '{target}' is not a scenario env")
+            if target == env.env_id:
+                raise ValueError(f"{path}: T_ii = 1 is implicit; remove self-transfer on '{env.env_id}'")
+    return cfg
+
+
+def scenario_env_params(cfg: ScenarioCfg) -> list[SimEnvParams]:
+    envs: list[SimEnvParams] = []
+    for e in cfg.envs:
+        envs.append(
+            SimEnvParams(
+                env_id=e.env_id,
+                skill0=e.skill0,
+                slope=e.slope,
+                difficulty=e.difficulty,
+                eta=e.eta,
+                cost_usd_per_prompt=e.cost_usd_per_prompt,
+                transfer_out=dict(e.transfer_out),
+                noisy_q=e.noisy_q,
+                gate_prereq=e.gate.prereq if e.gate else None,
+                gate_theta=e.gate.theta if e.gate else 0.0,
+                gate_slope=e.gate.slope if e.gate else 4.0,
+                drift_round=e.drift.round if e.drift else None,
+                drift_shift=e.drift.shift if e.drift else 0.0,
+                late_start_round=e.late_start_round,
+                cost_skill_slope=e.cost_skill_slope,
+                bench_slope=e.bench_slope,
+                bench_difficulty=e.bench_difficulty,
+                bench_weight=e.bench_weight,
+            )
+        )
+    return envs
+
+
+def build_world(cfg: ScenarioCfg, seed: int) -> SimWorld:
+    """Concrete world for (scenario, seed); deterministic in both (F.5)."""
+    seeds = SeedManager(seed)
+    world = SimWorld(
+        scenario_env_params(cfg),
+        steps_per_round=cfg.steps_per_round,
+        prompts_per_round=cfg.prompts_per_round,
+        group_size=cfg.group_size,
+        budget_usd=cfg.budget_usd,
+        skill_noise_std=cfg.world.skill_noise_std,
+        cost_lognormal_sigma=cfg.world.cost_lognormal_sigma,
+        rollout_concentration=cfg.world.rollout_concentration,
+        rng=seeds.rng("sim_world"),
+    )
+    world.set_benchmark_items(cfg.world.benchmark_items)
+    return world
