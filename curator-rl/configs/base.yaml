@@ -28,8 +28,9 @@ signals:
   lambda: 0.9            # discounted pooled pass-rate discount
   lambda_fast: 0.7       # fast window (LP-A)
   lambda_slow: 0.95      # slow window (LP-A)
-  lp_method: lp_a        # lp_a = fast-minus-slow | lp_b = slope | lp_c = non-overlapping windows
+  lp_method: lp_b        # lp_a = fast-minus-slow | lp_b = slope | lp_c = windows (chosen: lp_b, D-40)
   lp_use: signed         # signed | positive | abs
+  window_rounds: 10      # W: window length for LP-B / LP-C
   richness:
     mode: mixed          # mixed | band | variance
     band_lo: 0.1
@@ -41,20 +42,23 @@ signals:
   status:
     n_min: 64            # min effective prompt groups before S1 exits
     r_min: 3             # min rounds observed before S1 exits
-    p_sat: 0.85          # saturation pass-rate bound (lower interval bound)
-    p_hard: 0.10         # too-hard pass-rate bound (upper interval bound)
+    p_sat: 0.7           # saturation pass-rate bound (lower interval bound; tuned D-42)
+    p_hard: 0.05         # too-hard pass-rate bound (upper interval bound; tuned D-42)
     sr_hard: 0.10        # too-hard richness bound
-    z_up: 2.0            # LP z-score considered "progressing"
+    z_up: 1.5            # LP z-score considered "progressing" (tuned D-42)
     z_neg: 2.0           # negative LP z-score considered forgetting
     hysteresis_p: 0.05
     hysteresis_sr: 0.05
-    dwell_min: 5         # min rounds in a status before leaving it
-    consecutive_rounds: 3 # h: rounds a condition must hold before entering
+    dwell_min: 3         # min rounds in a status before leaving it (tuned D-42)
+    consecutive_rounds: 4 # h: rounds a condition must hold before entering (tuned D-42)
+    s1_entry_ratio: 0.5  # re-enter S1 only below this fraction of n_min (anti-flap)
 
 proxy:
   alpha: 0.5
   beta: 0.5
   clip_l: 3.0            # LP clip bound in robust sigmas
+  quantile_prior_lo: 0.0  # r-tilde quantile priors used during warm-up (E.4)
+  quantile_prior_hi: 1.0
 
 calib:
   interval_rounds: 5     # K

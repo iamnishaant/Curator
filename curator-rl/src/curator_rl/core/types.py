@@ -7,13 +7,16 @@ real trainer all produce the same observation types.
 Phase 2 introduces `Prompt`, `Verdict`, `RolloutGroup` and `CostPrior`.
 Phase 3 adds `EnvRoundObs`, `RoundObservation` and `CalibrationObservation`
 (Roadmap B.3): the simulator, the trace replayer and the real trainer all
-produce these same observation types. `MixtureDecision` and `RoiRecord` are
-added in the phases that first need them (Roadmap Part P).
+produce these same observation types. Phase 4 adds `EnvStatus` and
+`SignalVector` (the Signal Engine's per-environment output). `MixtureDecision`
+and `RoiRecord` are added in the phases that first need them (Roadmap Part
+P, decision D-26).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
 
 SPLITS = ("train", "calib", "dev", "test")
@@ -140,3 +143,45 @@ class CalibrationObservation:
     eval_cost_usd: float
     exposure_by_env: dict[str, float]
     window_cost_usd: float
+
+
+class EnvStatus(StrEnum):
+    """Per-environment status classes (Roadmap E.5, resolves S-1)."""
+
+    S1 = "S1_unexplored"
+    S2 = "S2_learning"
+    S3 = "S3_saturated"
+    S4 = "S4_too_hard"
+    S5 = "S5_unreliable"
+
+
+@dataclass(frozen=True)
+class SignalVector:
+    """Per-environment signals for one round (Roadmap E.2-E.5, Phase 4).
+
+    Produced by the Signal Engine from a `RoundObservation`; consumed by the
+    scheduler (Phase 5) and the study scripts. `status_note` carries the S2
+    sub-label ("S2a_progressing" / "S2b_plateau") and free-form context.
+    """
+
+    env_id: str
+    round_t: int
+    n_rounds_seen: int
+    n_groups_eff: float
+    pass_rate: float
+    pass_lo: float
+    pass_hi: float
+    lp: float
+    lp_se: float
+    lp_z: float
+    lp_raw_fast: float
+    lp_raw_slow: float
+    richness: float
+    mean_score: float
+    unit_cost_usd: float
+    unit_cost_norm: float
+    proxy_raw: float
+    proxy_unit: float
+    proxy_reward: float
+    status: EnvStatus
+    status_note: str

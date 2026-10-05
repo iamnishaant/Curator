@@ -43,7 +43,10 @@ Overshoot is logged and is at most one step.
 
 Types live in `curator_rl/core/types.py` once Phase 2 starts:
 `Prompt`, `Verdict`, `RolloutGroup`, `EnvRoundObs`, `RoundObservation`,
-`CalibrationObservation`, `MixtureDecision`, `RoiRecord`.
+`CalibrationObservation`, plus Phase 4's `EnvStatus` (S1–S5 str enum) and
+`SignalVector` (per-env signals + status; the Signal Engine output).
+`MixtureDecision` is deferred to v1 Phase 5 (D-26); `RoiRecord` to the ROI
+phase (Part I.6).
 
 ## 6. Notation table (Roadmap E.1 — frozen names)
 
@@ -84,6 +87,7 @@ signals.lambda_fast
 signals.lambda_slow
 signals.lp_method
 signals.lp_use
+signals.window_rounds
 signals.richness.mode
 signals.richness.band_lo
 signals.richness.band_hi
@@ -101,9 +105,12 @@ signals.status.hysteresis_p
 signals.status.hysteresis_sr
 signals.status.dwell_min
 signals.status.consecutive_rounds
+signals.status.s1_entry_ratio
 proxy.alpha
 proxy.beta
 proxy.clip_l
+proxy.quantile_prior_lo
+proxy.quantile_prior_hi
 calib.interval_rounds
 calib.target
 calib.k_min

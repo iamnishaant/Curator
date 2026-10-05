@@ -76,6 +76,7 @@ class StatusCfg(_StrictModel):
     hysteresis_sr: float = Field(ge=0, le=1)
     dwell_min: int = Field(ge=1)
     consecutive_rounds: int = Field(ge=1)
+    s1_entry_ratio: float = Field(ge=0, le=1)
 
 
 class PriorCfg(_StrictModel):
@@ -89,6 +90,7 @@ class SignalsCfg(_StrictModel):
     lam: float = Field(alias="lambda", gt=0, le=1)
     lambda_fast: float = Field(gt=0, le=1)
     lambda_slow: float = Field(gt=0, le=1)
+    window_rounds: int = Field(gt=0)
     lp_method: Literal["lp_a", "lp_b", "lp_c"]
     lp_use: Literal["signed", "positive", "abs"]
     richness: RichnessCfg
@@ -100,6 +102,16 @@ class ProxyCfg(_StrictModel):
     alpha: float = Field(ge=0)
     beta: float = Field(ge=0)
     clip_l: float = Field(gt=0)
+    quantile_prior_lo: float = Field(ge=0)
+    quantile_prior_hi: float = Field(gt=0)
+
+    @field_validator("quantile_prior_hi")
+    @classmethod
+    def _quantile_ordered(cls, hi: float, info):  # noqa: ANN001
+        lo = info.data.get("quantile_prior_lo")
+        if lo is not None and hi <= lo:
+            raise ValueError("proxy.quantile_prior_hi must be > proxy.quantile_prior_lo")
+        return hi
 
 
 class CalibCfg(_StrictModel):
