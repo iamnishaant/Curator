@@ -34,15 +34,82 @@ from curator_rl.simulator.scenarios import load_scenario  # noqa: E402
 
 DEFAULT_SEEDS = 20
 DEFAULT_METHODS = ("uniform", "random", "static_oracle", "myopic_oracle", "dp_oracle")
+_SCHEDULER_METHODS = ("static", "lp", "ucb", "sec", "dump", "curator")
+_BASE_CFG: dict | None = None
 
 
-def make_scheduler(method: str, scenario, seed: int, *, dp_levels: int = 80, dp_units: int | None = None):
-    """Construct a scheduler-like object for one episode (Roadmap F.5)."""
+def _load_base_config():
+    """Lazily load configs/base.yaml once (D-44: methods via overrides, no YAML per method)."""
+    global _BASE_CFG
+    if _BASE_CFG is None:
+        from curator_rl.core.config import load_config
+
+        _BASE_CFG = load_config(REPO_ROOT / "configs" / "base.yaml")
+    return _BASE_CFG
+
+
+def _static_weights(scenario) -> dict[str, float]:
+    """Pre-registered static mixture (Roadmap J.1 #2, D-63).
+
+    Size-proportional on the declared `nominal_size` when every arm has one;
+    otherwise the benchmark slice weights pi_d (D-45), else uniform. All three
+    are visible before training and never a hidden training signal.
+    """
+    envs = scenario.envs
+    if all(e.nominal_size is not None for e in envs):
+        raw = [float(e.nominal_size) for e in envs]
+    else:
+        raw = [float(e.bench_weight) if e.bench_weight is not None else 1.0 for e in envs]
+    total = sum(raw)
+    return {e.env_id: r / total for e, r in zip(envs, raw)}
+
+
+def make_scheduler(
+    method: str, scenario, seed: int, *, dp_levels: int = 80, dp_units: int | None = None, cfg=None
+):
+    """Construct a scheduler-like object for one episode (Roadmap F.5).
+
+    `cfg` overrides the cached `configs/base.yaml` (tuning sweeps pass variants).
+    """
     env_ids = [e.env_id for e in scenario.envs]
     if method == "uniform":
         return UniformScheduler(env_ids)
     if method == "random":
         return RandomScheduler(env_ids, SeedManager(seed).rng("scheduler"))
+    if method in _SCHEDULER_METHODS:
+        from curator_rl.scheduler.baselines.dump import DUMPStyleUCB
+        from curator_rl.scheduler.baselines.lp import LPCurriculum
+        from curator_rl.scheduler.baselines.sec import SECStyleBandit
+        from curator_rl.scheduler.baselines.static import StaticMixtureScheduler
+        from curator_rl.scheduler.baselines.ucb import StandardUCB
+        from curator_rl.scheduler.curator import Curator
+
+        cfg = cfg if cfg is not None else _load_base_config()
+        prompts_per_round = scenario.steps_per_round * scenario.prompts_per_step
+        if method == "static":
+            return StaticMixtureScheduler(env_ids, _static_weights(scenario))
+        if method == "lp":
+            lp_sched = cfg.scheduler.model_copy(update={"tau": cfg.baselines.lp.tau})
+            return LPCurriculum(env_ids, cfg.signals, cfg.proxy, lp_sched, cfg.calib, cfg.group_size)
+        if method == "ucb":
+            ucb_sched = cfg.scheduler.model_copy(
+                update={
+                    "exploration_coef": cfg.baselines.ucb.exploration_coef,
+                    "tau": cfg.baselines.ucb.tau,
+                }
+            )
+            return StandardUCB(
+                env_ids, cfg.signals, cfg.proxy, ucb_sched, cfg.calib, cfg.group_size,
+                prompts_per_round=prompts_per_round,
+            )
+        if method == "sec":
+            return SECStyleBandit(env_ids, cfg.baselines.sec, cfg.scheduler)
+        if method == "dump":
+            return DUMPStyleUCB(env_ids, cfg.baselines.dump, cfg.scheduler)
+        return Curator(
+            env_ids, cfg.signals, cfg.proxy, cfg.scheduler, cfg.calib, cfg.group_size,
+            prompts_per_round=prompts_per_round, cre_cfg=cfg.cre,
+        )
     if method == "static_oracle":
         from curator_rl.simulator.scenarios import build_world
 

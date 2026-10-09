@@ -103,6 +103,10 @@ class EnvRoundObs:
     verifier_seconds: float
     gpu_seconds: float
     cost_usd: float
+    # Sum over the round's prompt groups of the group mean |GRPO advantage|
+    # (`core.advantage.group_mean_abs_advantage`). SEC/DUMP-style allocators
+    # read it; Curator ignores it. Default keeps older constructors valid.
+    sum_abs_adv: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -143,6 +147,10 @@ class CalibrationObservation:
     eval_cost_usd: float
     exposure_by_env: dict[str, float]
     window_cost_usd: float
+    # SE of the change in each slice since the previous evaluation, from PAIRED
+    # items (only items that flipped add variance; Roadmap v3 4.3). None when the
+    # items are not paired or this is the first evaluation (D-72).
+    delta_se_by_domain: dict[str, float] | None = None
 
 
 class EnvStatus(StrEnum):
@@ -185,3 +193,26 @@ class SignalVector:
     proxy_reward: float
     status: EnvStatus
     status_note: str
+
+
+@dataclass(frozen=True)
+class MixtureDecision:
+    """One scheduler decision (Roadmap B.3; Phase 5, ends the D-26 deferral).
+
+    `weights` is the mixture actually returned; `ucb_scores`/`mu_hat`/`bonus`
+    are the pre-mixture score components; `statuses`/`intents` are the
+    SignalVector statuses and the (status, Δw)-derived action labels; `quotas`
+    are the largest-remainder prompt counts for the round; `rng_hash` pins
+    the decision to a scheduler state hash for auditability.
+    """
+
+    round: int
+    steps: int
+    weights: dict[str, float]
+    ucb_scores: dict[str, float]
+    mu_hat: dict[str, float]
+    bonus: dict[str, float]
+    statuses: dict[str, str]
+    intents: dict[str, str]
+    quotas: dict[str, int]
+    rng_hash: str

@@ -11,10 +11,10 @@ from curator_rl.core.config import CuratorConfigError
 
 def test_config_loads_base_yaml(base_cfg):
     cfg = base_cfg
-    assert cfg.scheduler.gamma == pytest.approx(0.95)
+    assert cfg.scheduler.gamma == pytest.approx(0.95)  # tuned, D-68
     assert cfg.signals.lam == pytest.approx(0.9)
     assert cfg.proxy.alpha == pytest.approx(0.5)
-    assert cfg.calib.interval_rounds == 5
+    assert cfg.calib.interval_rounds == 10  # D-75
     assert cfg.steps_per_round == 5 and cfg.prompts_per_step == 16 and cfg.group_size == 8
     assert cfg.experiment.seed == 0
 
@@ -78,7 +78,7 @@ def test_config_hash_stable_and_sensitive(base_cfg, tmp_path):
     h1 = config_mod.config_hash(base_cfg)
     h2 = config_mod.config_hash(config_mod.load_config(BASE_CFG))
     assert h1 == h2 and len(h1) == 64
-    cfg_b = make_config_file(tmp_path, {"scheduler.gamma": 0.90})
+    cfg_b = make_config_file(tmp_path, {"scheduler.gamma": 0.85})
     h3 = config_mod.config_hash(config_mod.load_config(cfg_b))
     assert h3 != h1
 

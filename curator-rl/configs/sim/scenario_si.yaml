@@ -1,0 +1,56 @@
+# S-I (Roadmap v3 section 4.1/4.2, Phase C): simulator analogue of the Level-1 portfolio,
+# COST-HETEROGENEOUS (1x to 3x), long horizon (>= 60 rounds under Uniform).
+# Question: does cost-aware allocation beat learnability-only bandits when arms differ in cost?
+#
+# PLACEHOLDER VALUES: unit costs and pass rates are assumptions until the Phase B
+# pilot on Kaggle measures them; the scenario is then refit (Roadmap F.7).
+scenario_id: S-I
+description: 6-arm portfolio analogue (gsm8k, math35, mbpp, countdown, noisy, too_hard) with 1x-3x costs
+budget_usd: 9.5          # ~70 rounds under Uniform (mean unit cost 0.0017 x 80 prompts/round)
+max_rounds: 200
+steps_per_round: 5
+prompts_per_step: 16
+group_size: 8
+world:
+  skill_noise_std: 0.003
+  cost_lognormal_sigma: 0.10
+  rollout_concentration: 25.0
+  benchmark_items: 200
+calib:
+  enabled: false
+oracle:
+  simplex_step: 0.1
+  random_search_draws: 1500
+envs:
+  - env_id: gsm8k
+    nominal_size: 6873     # real dataset sizes; procedural arms get a declared nominal size
+    difficulty: -0.4       # p0 ~ 0.69, learnable and cheap, saturates over the run
+    eta: 0.006
+    cost_usd_per_prompt: 0.0010
+    transfer_out: {math35: 0.3}
+  - env_id: math35
+    nominal_size: 4700
+    difficulty: 0.8        # p0 ~ 0.17, long completions
+    eta: 0.005
+    cost_usd_per_prompt: 0.0025
+    transfer_out: {gsm8k: 0.3}
+  - env_id: mbpp
+    nominal_size: 974
+    difficulty: 0.4        # p0 ~ 0.31, sandboxed code, most expensive
+    eta: 0.005
+    cost_usd_per_prompt: 0.0030
+  - env_id: countdown
+    nominal_size: 5000
+    difficulty: 1.0        # p0 ~ 0.12
+    eta: 0.004
+    cost_usd_per_prompt: 0.0012
+  - env_id: noisy
+    nominal_size: 6873     # a wrapper over GSM8K inputs
+    eta: 0.01              # forced to 0 by the world (noisy type, F.2)
+    cost_usd_per_prompt: 0.0010
+    noisy_q: 0.30
+  - env_id: too_hard
+    nominal_size: 5000
+    difficulty: 4.0        # p0 ~ 0, zero-signal arm
+    eta: 0.004
+    cost_usd_per_prompt: 0.0015

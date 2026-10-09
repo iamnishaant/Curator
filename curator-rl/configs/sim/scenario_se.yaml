@@ -19,15 +19,18 @@ oracle:
   simplex_step: 0.1
 envs:
   - env_id: drifts
+    nominal_size: 6873   # declared, position-assigned (D-63)
     difficulty: 0.3
     eta: 0.015
     cost_usd_per_prompt: 0.001
     drift: {round: 12, shift: -2.5}   # p -> ~1, learnability -> ~0
   - env_id: steady
+    nominal_size: 7500   # declared, position-assigned (D-63)
     difficulty: 0.7
     eta: 0.012
     cost_usd_per_prompt: 0.001
   - env_id: slow
+    nominal_size: 974   # declared, position-assigned (D-63)
     difficulty: 1.2
     eta: 0.012
     cost_usd_per_prompt: 0.001

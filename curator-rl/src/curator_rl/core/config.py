@@ -47,6 +47,44 @@ class SchedulerCfg(_StrictModel):
     cost_exponent: float = Field(ge=0)
     status_control: Literal["off", "soft", "hard"]
     pull_unit: Literal["round", "prompt"]
+    s3_multiplier: float = Field(ge=0, le=1)
+    s4_multiplier: float = Field(ge=0, le=1)
+    s5_shrink: float = Field(ge=0, le=1)
+    s1_quota: float = Field(ge=0)
+
+
+class UcbBaselineCfg(_StrictModel):
+    """Standard UCB baseline (J.1 #5): its own kappa/tau, tuned independently (D-68)."""
+
+    exploration_coef: float = Field(ge=0)
+    tau: float = Field(gt=0)
+
+
+class LpBaselineCfg(_StrictModel):
+    """Learning-progress curriculum baseline (J.1 #4)."""
+
+    tau: float = Field(gt=0)
+
+
+class SecBaselineCfg(_StrictModel):
+    """SEC-style bandit (J.1 #9, D-68): TD(0) step `alpha`, Boltzmann temperature `tau`."""
+
+    alpha: float = Field(gt=0, le=1)
+    tau: float = Field(gt=0)
+
+
+class DumpBaselineCfg(_StrictModel):
+    """DUMP-style UCB over mean |advantage| (D-68)."""
+
+    exploration_coef: float = Field(ge=0)
+    tau: float = Field(gt=0)
+
+
+class BaselinesCfg(_StrictModel):
+    ucb: UcbBaselineCfg
+    lp: LpBaselineCfg
+    sec: SecBaselineCfg
+    dump: DumpBaselineCfg
 
 
 class RichnessCfg(_StrictModel):
@@ -115,6 +153,7 @@ class ProxyCfg(_StrictModel):
 
 
 class CalibCfg(_StrictModel):
+    enabled: bool  # Curator consumes calibration (ablation `calib.enabled: false`, Roadmap 12)
     interval_rounds: int = Field(ge=1)
     target: Literal["domain", "global"]
     k_min: int = Field(ge=1)
@@ -122,6 +161,20 @@ class CalibCfg(_StrictModel):
     z_mis: float = Field(gt=0)
     mismatch_windows: int = Field(ge=1)
     mismatch_clear_windows: int = Field(ge=1)
+    targeting: Literal["all", "exposure"]  # which slices each calibration evaluates (D-75)
+    max_targets: int = Field(ge=1)         # slices per calibration when targeting = exposure
+    items_per_slice: int = Field(ge=1)     # paired items evaluated per targeted slice
+
+
+class CreCfg(_StrictModel):
+    """Calibrated Reward Engine (D-76). `prior_rel_sd` and `roi_scale` are frozen from tuning seeds."""
+
+    enabled: bool
+    mode: Literal["full", "no_uncertainty"]
+    proxy_scale: float = Field(gt=0)    # s: proxy units -> gain per dollar x cost, frozen from tuning seeds
+    prior_rel_sd: float = Field(gt=0)   # rho: relative sd of the proxy-implied prior
+    roi_scale: float = Field(gt=0)      # R_max: benchmark gain at which the reward saturates
+    discount: float = Field(gt=0, le=1)  # per-window forgetting of evidence; 1 = off
 
 
 class CostCfg(_StrictModel):
@@ -171,10 +224,30 @@ class NoisyEnvCfg(TokenLimitsCfg):
     flip_p: float = Field(gt=0, lt=1)  # flip probability in 'flip' mode
 
 
+class Math35EnvCfg(TokenLimitsCfg):
+    level_min: int = Field(ge=1, le=5)
+    level_max: int = Field(ge=1, le=5)
+
+    @field_validator("level_max")
+    @classmethod
+    def _levels_ordered(cls, hi: int, info):  # noqa: ANN001
+        lo = info.data.get("level_min")
+        if lo is not None and hi < lo:
+            raise ValueError("math35.level_max must be >= math35.level_min")
+        return hi
+
+
+class MbppEnvCfg(TokenLimitsCfg):
+    memory_limit_mb: int = Field(ge=64)   # sandbox address-space limit (POSIX)
+    dev_size: int = Field(ge=1)           # dev items carved from the official train split
+
+
 class DataEnvsCfg(_StrictModel):
     gsm8k: Gsm8kEnvCfg
     countdown: CountdownEnvCfg
     noisy: NoisyEnvCfg
+    math35: Math35EnvCfg
+    mbpp: MbppEnvCfg
 
 
 class DataCfg(_StrictModel):
@@ -202,9 +275,11 @@ class RootConfig(_StrictModel):
     experiment: ExperimentCfg
     budget: BudgetCfg
     scheduler: SchedulerCfg
+    baselines: BaselinesCfg
     signals: SignalsCfg
     proxy: ProxyCfg
     calib: CalibCfg
+    cre: CreCfg
     cost: CostCfg
     data: DataCfg
     paths: PathsCfg

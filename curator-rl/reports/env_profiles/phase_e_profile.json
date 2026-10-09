@@ -1,0 +1,36 @@
+{
+  "generated_at_utc": "2026-10-09T17:18:33Z",
+  "math35": {
+    "split_sizes": {
+      "train": 4982,
+      "calib": 300,
+      "dev": 300
+    },
+    "sealed": 500,
+    "levels": {
+      "3": 1590,
+      "4": 1690,
+      "5": 2302
+    },
+    "gold_rate": 1.0,
+    "gold_failures": [],
+    "n_gold_failures": 0,
+    "garbage_success_rate": 0.0,
+    "verifier_mean_seconds_gold": 0.000382,
+    "exact_text_overlap_with_sealed": []
+  },
+  "mbpp": {
+    "split_sizes": {
+      "train": 314,
+      "dev": 60,
+      "calib": 90
+    },
+    "sealed": 500,
+    "gold_rate": 1.0,
+    "gold_failures": [],
+    "n_gold_failures": 0,
+    "garbage_success_rate": 0.0,
+    "verifier_mean_seconds_gold": 0.1131,
+    "verifier_p95_seconds_gold": 0.1304
+  }
+}

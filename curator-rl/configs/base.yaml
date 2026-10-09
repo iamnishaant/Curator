@@ -14,18 +14,39 @@ budget:
   n_gpus: 1
 
 scheduler:
-  gamma: 0.95            # bandit forgetting factor (MDP discount is 1)
-  exploration_coef: 0.5  # UCB bonus coefficient (kappa)
-  tau: 1.0               # softmax temperature on normalised scores
+  gamma: 0.95            # bandit forgetting factor (MDP discount is 1; tuned D-49, re-tuned D-68)
+  exploration_coef: 0.5  # UCB bonus coefficient (kappa; tuned D-49, re-tuned D-68)
+  tau: 0.3               # softmax temperature on normalised scores (tuned D-49)
   epsilon: 0.10          # exploration floor => w_i >= epsilon/n_envs
   warmup_rounds: 6       # uniform warm-up before the scheduler takes over
   score_norm: zscore     # none | zscore | rank
   cost_exponent: 1.0     # theta_c; 0 disables cost normalisation (ablation)
-  status_control: soft   # off | soft | hard
+  status_control: hard   # off | soft | hard (tuned D-64: fixes junk share, Gate 2c)
   pull_unit: round       # scale of the UCB log argument
+  s3_multiplier: 0.5     # soft: UCB score * m_sat for saturated arms (E.5)
+  s4_multiplier: 0.5     # soft: UCB score * m for too-hard arms
+  s5_shrink: 0.5         # soft: shrink proxy mass of unreliable arms (s_unrel)
+  s1_quota: 0.30         # q_explore: floor w_i >= q until S1 exits (2x while n_groups_eff < n_min/2)
+
+# Baseline hyperparameters (D-68). Every adaptive method has its own, tuned with
+# the same budget on tuning seeds (v3 section 4.4); selected values come from
+# reports/sweeps/tune_all.md (pre-registered one-SE + least-concentrated rule). The exploration floor epsilon
+# and the warm-up length are protocol constants shared by all adaptive methods.
+baselines:
+  ucb:
+    exploration_coef: 0.5
+    tau: 0.3
+  lp:
+    tau: 0.75
+  sec:
+    alpha: 0.1           # TD(0) step for Q <- alpha*r + (1-alpha)*Q
+    tau: 0.4
+  dump:
+    exploration_coef: 2.0
+    tau: 0.4
 
 signals:
-  lambda: 0.9            # discounted pooled pass-rate discount
+  lambda: 0.9           # discounted pooled pass-rate discount
   lambda_fast: 0.7       # fast window (LP-A)
   lambda_slow: 0.95      # slow window (LP-A)
   lp_method: lp_b        # lp_a = fast-minus-slow | lp_b = slope | lp_c = windows (chosen: lp_b, D-40)
@@ -61,13 +82,28 @@ proxy:
   quantile_prior_hi: 1.0
 
 calib:
-  interval_rounds: 5     # K
+  enabled: true          # Curator consumes calibration windows (ablation: false; D-73)
+  interval_rounds: 10    # K (calibration power study, D-75)
   target: domain         # domain (own-slice gains) | global (window gains)
-  k_min: 5               # min windows before the first alpha/beta fit
+  k_min: 2               # min gain windows before S5 decisions (power study, D-75)
   trust_region: 0.25     # max relative change of (alpha, beta) per fit
   z_mis: 2.0             # S5 mismatch threshold (standardised residual)
   mismatch_windows: 2    # q: consecutive windows to enter S5
   mismatch_clear_windows: 2
+  targeting: exposure    # all | exposure: evaluate only the slices of the most-funded arms (D-75)
+  max_targets: 1         # slices per calibration after a one-time all-slice baseline (D-75)
+  items_per_slice: 100   # paired items per evaluated slice
+
+# Calibrated Reward Engine (D-76). Disabled by default until the pre-registered Gate 2''
+# run (cre_gate.py, seeds 200-249) decides adoption. Constants frozen from tuning seeds
+# 0-49 by cre_constants.py (D-78); never changed after seeing evaluation outcomes.
+cre:
+  enabled: false
+  mode: full             # full | no_uncertainty (ablation)
+  proxy_scale: 0.0001963  # s (D-78)
+  prior_rel_sd: 1.232     # rho (D-78)
+  roi_scale: 1.5105       # R_max (D-78)
+  discount: 1.0          # 1 = no forgetting (primary setting); < 1 is an ablation
 
 cost:
   count_cpu_verifier_as_gpu_time: true
@@ -95,6 +131,20 @@ data:
       max_completion_tokens: 512
       verifier_timeout_s: 5.0
       prior_usd_per_prompt: 0.001
+    math35:
+      level_min: 3           # MATH levels 3-5 (Roadmap D.2)
+      level_max: 5
+      max_prompt_tokens: 512
+      max_completion_tokens: 1024
+      verifier_timeout_s: 5.0
+      prior_usd_per_prompt: 0.002         # cold-start prior only (Roadmap H.5)
+    mbpp:
+      memory_limit_mb: 512
+      dev_size: 60           # carved from official train; calib = official validation
+      max_prompt_tokens: 512
+      max_completion_tokens: 512
+      verifier_timeout_s: 5.0
+      prior_usd_per_prompt: 0.003
     noisy:
       mode: random          # random | flip
       q: 0.35               # Bernoulli(q) reward, independent of the outcome

@@ -49,6 +49,7 @@ source = ["curator_rl.core"]
 line-length = 100
 src = ["src", "tests"]
 target-version = "py311"
+extend-exclude = ["notebooks"]   # Kaggle runner notebooks: shell-heavy cells, generated, not library code
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]

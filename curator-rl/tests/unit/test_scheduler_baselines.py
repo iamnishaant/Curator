@@ -49,3 +49,46 @@ def test_validate_weights_rejects_bad_mixtures():
 def test_scheduler_needs_envs():
     with pytest.raises(ValueError):
         UniformScheduler(())
+
+
+def _scenario(sizes, bench=None):
+    from curator_rl.simulator.scenarios import ScenarioCfg, SimEnvCfg
+
+    envs = [
+        SimEnvCfg(
+            env_id=f"e{i}", eta=0.01, cost_usd_per_prompt=0.001,
+            nominal_size=None if sizes is None else sizes[i],
+            bench_weight=None if bench is None else bench[i],
+        )
+        for i in range(3)
+    ]
+    return ScenarioCfg(scenario_id="T", description="t", budget_usd=1.0, envs=envs)
+
+
+def test_static_weights_are_size_proportional_when_sizes_declared():
+    from experiments.run_sim import _static_weights  # noqa: PLC0415
+
+    w = _static_weights(_scenario([6000, 3000, 1000]))
+    assert w == pytest.approx({"e0": 0.6, "e1": 0.3, "e2": 0.1})
+
+
+def test_static_weights_fall_back_to_bench_weights_then_uniform():
+    from experiments.run_sim import _static_weights  # noqa: PLC0415
+
+    by_bench = _static_weights(_scenario(None, bench=[0.5, 0.25, 0.25]))
+    assert by_bench == pytest.approx({"e0": 0.5, "e1": 0.25, "e2": 0.25})
+    uniform = _static_weights(_scenario(None))
+    assert uniform == pytest.approx({"e0": 1 / 3, "e1": 1 / 3, "e2": 1 / 3})
+
+
+def test_gate2_scenarios_declare_non_degenerate_static_mixtures():
+    # D-63: Static must differ from Uniform on the Gate 2 scenarios
+    from experiments.run_sim import _static_weights  # noqa: PLC0415
+    from tests.conftest import REPO_ROOT  # noqa: PLC0415
+
+    from curator_rl.simulator.scenarios import load_scenario  # noqa: PLC0415
+
+    for sid in ("sa", "sb", "sc"):
+        sc = load_scenario(str(REPO_ROOT / "configs" / "sim" / f"scenario_{sid}.yaml"))
+        w = _static_weights(sc)
+        assert max(w.values()) - min(w.values()) > 0.05

@@ -65,19 +65,25 @@ def test_import_rules():
         if package == "core":
             banned = HEAVY_EXTERNAL | L1_PACKAGES | L2_PACKAGES | {"curator_rl", "evaluation"}
         elif package in L1_PACKAGES:
+            # L1 may import core, its own package, and OTHER L1 packages:
+            # the scheduler owns a SignalEngine (A.2 decision 1 — a pure
+            # function of observations must build signals internally), and
+            # calibration/roi consume signals too. L2 stays banned.
             banned = (
                 HEAVY_EXTERNAL
-                | {p for p in L1_PACKAGES | L2_PACKAGES if p != package}
+                | {p for p in L2_PACKAGES}
                 | {"curator_rl", "evaluation"}
             )
-            allowed_self = {package, f"curator_rl.{package}"}
+            allowed_l1 = L1_PACKAGES | {f"curator_rl.{p}" for p in L1_PACKAGES}
             for imp in imports:
                 if (
-                    imp not in allowed_self
+                    imp not in allowed_l1
                     and imp.startswith("curator_rl")
                     and not imp.startswith("curator_rl.core")
                 ):
-                    violations.append(f"{py.relative_to(SRC)}: L1 may only import core (got '{imp}')")
+                    violations.append(
+                        f"{py.relative_to(SRC)}: L1 may only import core and L1 (got '{imp}')"
+                    )
         elif package in L2_PACKAGES:
             banned = set()  # L2 may use heavy libraries except trl (rule above)
         else:

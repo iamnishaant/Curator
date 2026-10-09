@@ -62,12 +62,47 @@ class SimEnvCfg(_StrictModel):
     bench_slope: float | None = None
     bench_difficulty: float | None = None
     bench_weight: float | None = None
+    # Declared dataset size (D-63): the a-priori, scheduler-visible quantity the
+    # Static baseline is proportional to. Never used by the world or oracles.
+    nominal_size: float | None = Field(default=None, gt=0)
 
 
 class CalibSimCfg(_StrictModel):
+    """Calibration evaluations offered to schedulers that use them (charged to them only, D-72).
+
+    `paired`: evaluate the same fixed items every time (an item is solved iff its
+    latent u < p), so a window's change has only flip variance, as with greedy
+    decoding on a fixed calibration set. `churn`: fraction of items whose latent
+    is redrawn at each evaluation (random flips unrelated to skill).
+    """
+
     enabled: bool = False
     interval_rounds: int = Field(default=5, ge=1)
     cost_usd: float = Field(default=0.01, ge=0)
+    paired: bool = False
+    churn: float = Field(default=0.02, ge=0, le=1)
+    # Calibration slice size (None = world.benchmark_items, the final-eval size) and,
+    # when set, a per-item cost so that cost and statistical power stay consistent:
+    # eval cost = cost_per_item_usd * items_per_slice * n_slices (D-74).
+    items_per_slice: int | None = Field(default=None, ge=1)
+    cost_per_item_usd: float | None = Field(default=None, ge=0)
+
+    def eval_cost(self, n_slices: int, default_items: int) -> float:
+        if self.cost_per_item_usd is None:
+            return self.cost_usd
+        return self.cost_per_item_usd * (self.items_per_slice or default_items) * n_slices
+
+    def eval_cost_items(self, n_items_total: int) -> float:
+        """Cost of a targeted evaluation of `n_items_total` items (D-75)."""
+        if self.cost_per_item_usd is None:
+            return self.cost_usd
+        return self.cost_per_item_usd * n_items_total
+
+
+class ReportEvalCfg(_StrictModel):
+    """Uncharged reporting evaluations (Roadmap L.4); 0 disables (D-46)."""
+
+    interval_rounds: int = Field(default=0, ge=0)
 
 
 class SimWorldCfg(_StrictModel):
@@ -90,8 +125,9 @@ class ScenarioCfg(_StrictModel):
     max_rounds: int = Field(default=200, ge=1)
     steps_per_round: int = Field(default=5, ge=1)
     prompts_per_step: int = Field(default=16, ge=1)
-    group_size: int = Field(default=8, ge=1)
+    group_size: int = Field(default=8, ge=2)
     calib: CalibSimCfg = CalibSimCfg()
+    report_eval: ReportEvalCfg = ReportEvalCfg()
     world: SimWorldCfg = SimWorldCfg()
     oracle: OracleCfg = OracleCfg()
     envs: list[SimEnvCfg] = Field(min_length=1)
@@ -168,6 +204,7 @@ def build_world(cfg: ScenarioCfg, seed: int) -> SimWorld:
         cost_lognormal_sigma=cfg.world.cost_lognormal_sigma,
         rollout_concentration=cfg.world.rollout_concentration,
         rng=seeds.rng("sim_world"),
+        calib_rng=seeds.rng("sim_calib"),
     )
     world.set_benchmark_items(cfg.world.benchmark_items)
     return world

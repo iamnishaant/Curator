@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from curator_rl.core.advantage import group_mean_abs_advantage
 from curator_rl.core.types import CalibrationObservation, EnvRoundObs, RoundObservation
 from curator_rl.simulator.quotas import largest_remainder_quotas
 
@@ -100,6 +101,7 @@ class SimWorld:
         rollout_concentration: float = 25.0,
         usd_per_gpu_hour: float = 1.0,
         rng: np.random.Generator | None = None,
+        calib_rng: np.random.Generator | None = None,
     ) -> None:
         if not envs:
             raise ValueError("SimWorld needs at least one environment")
@@ -117,6 +119,10 @@ class SimWorld:
         self.kappa_b = float(rollout_concentration)
         self.usd_per_gpu_hour = float(usd_per_gpu_hour)
         self.rng = rng if rng is not None else np.random.default_rng()
+        # separate stream so paired calibration never perturbs the training draws
+        self.calib_rng = calib_rng if calib_rng is not None else np.random.default_rng(0)
+        self._calib_items: dict[str, np.ndarray] = {}
+        self._calib_prev: dict[str, np.ndarray] = {}
 
         self.skills: dict[str, float] = {e.env_id: float(e.skill0) for e in envs}
         # noisy envs never learn and never transfer (Roadmap F.2 noisy type)
@@ -249,6 +255,7 @@ class SimWorld:
         n_groups_mixed = 0
         sum_score = 0.0
         sum_score_sq = 0.0
+        sum_abs_adv = 0.0
         if env_id in self.noisy:
             q = float(e.noisy_q or 0.0)
             ks = self.rng.binomial(self.G, q, size=m_i)  # Bernoulli(q) per rollout
@@ -267,6 +274,7 @@ class SimWorld:
             n_groups_mixed += int(0 < k < self.G)
             sum_score += rate
             sum_score_sq += rate * rate
+            sum_abs_adv += group_mean_abs_advantage(int(k), self.G)
         n_rollouts = m_i * self.G
         # costs: log-normal noise around the current mean unit cost
         mean_cost = self.unit_cost(env_id)
@@ -288,6 +296,7 @@ class SimWorld:
             verifier_seconds=verifier_seconds,
             gpu_seconds=gpu_seconds,
             cost_usd=env_cost,
+            sum_abs_adv=sum_abs_adv,
         )
 
     # ------------------------------------------------------------- benchmark
@@ -325,6 +334,55 @@ class SimWorld:
         self.benchmark_evals += 1
         return total, math.sqrt(var_total), s_by_domain, se_by_domain
 
+    def evaluate_benchmark_paired(
+        self, churn: float, n_items: int | None = None, request: dict[str, int] | None = None
+    ) -> tuple[float, float, dict[str, float], dict[str, float], dict[str, float] | None]:
+        """Paired evaluation on fixed items (Roadmap v3 4.3, D-72).
+
+        Each slice holds n_b items with a fixed latent u ~ U(0,1); an item is
+        solved iff u < p(skill). A fraction `churn` of latents is redrawn per
+        evaluation. Returns (S, SE, S_d, SE_d, SE of the change in S_d since the
+        previous paired evaluation, or None the first time). The change SE is the
+        paired (McNemar) one: sqrt(n01 + n10 - (n01 - n10)^2 / n) / n, floored at
+        one discordant item.
+        """
+        default_n = int(n_items or self._n_b_default)
+        targets = [e for e in self._order if request is None or e in request]
+        s_by: dict[str, float] = {}
+        se_by: dict[str, float] = {}
+        dse_by: dict[str, float] = {}
+        total, var_total, wsum = 0.0, 0.0, 0.0
+        for env_id in targets:
+            n_b = int(request[env_id]) if request is not None else default_n
+            e = self.envs[env_id]
+            p = sigmoid(e.bench_slope * (self.skills[env_id] - e.bench_difficulty))
+            u = self._calib_items.get(env_id)
+            if u is None or len(u) != n_b:
+                u = self.calib_rng.random(n_b)
+            elif churn > 0.0:
+                u = u.copy()
+                flip = self.calib_rng.random(n_b) < churn
+                u[flip] = self.calib_rng.random(int(flip.sum()))
+            self._calib_items[env_id] = u
+            correct = u < p
+            s_d = float(correct.mean())
+            se_d = math.sqrt(max(s_d * (1.0 - s_d), _EPS) / n_b)
+            prev = self._calib_prev.get(env_id)
+            if prev is not None and len(prev) == n_b:
+                n01 = int(np.sum(~prev & correct))
+                n10 = int(np.sum(prev & ~correct))
+                disc, diff = n01 + n10, n01 - n10
+                dse_by[env_id] = math.sqrt(max(disc - diff * diff / n_b, 1.0)) / n_b
+            self._calib_prev[env_id] = correct
+            pi_d = self.bench_weight[env_id]
+            s_by[env_id], se_by[env_id] = s_d, se_d
+            total += pi_d * s_d
+            var_total += (pi_d * se_d) ** 2
+            wsum += pi_d
+        self.benchmark_evals += 1
+        norm = wsum if wsum > 0 else 1.0  # score over the evaluated slices only
+        return total / norm, math.sqrt(var_total) / norm, s_by, se_by, (dse_by or None)
+
     def calibration_observation(
         self,
         *,
@@ -332,9 +390,23 @@ class SimWorld:
         exposure_by_env: dict[str, float],
         window_cost_usd: float,
         eval_cost_usd: float,
+        paired: bool = False,
+        churn: float = 0.0,
+        n_items: int | None = None,
+        request: dict[str, int] | None = None,
     ) -> CalibrationObservation:
-        """Produce a CalibrationObservation in the real-system schema (B.3)."""
-        total, se_total, by_domain, se_by_domain = self.evaluate_benchmark(observed=True)
+        """Produce a CalibrationObservation in the real-system schema (B.3).
+
+        `request` (paired mode only) names the slices to evaluate and their item
+        counts (targeted calibration, D-75); None evaluates every slice.
+        """
+        delta_se = None
+        n_slice = int(n_items or self._n_b_default)
+        if paired:
+            total, se_total, by_domain, se_by_domain, delta_se = self.evaluate_benchmark_paired(
+                churn, n_slice, request)
+        else:
+            total, se_total, by_domain, se_by_domain = self.evaluate_benchmark(observed=True)
         return CalibrationObservation(
             window_k=window_k,
             round=self.rounds_done,
@@ -342,8 +414,9 @@ class SimWorld:
             score_by_domain=by_domain,
             se_total=se_total,
             se_by_domain=se_by_domain,
-            n_items=self._n_b_default * len(self._order),
+            n_items=(sum(request.values()) if (paired and request) else n_slice * len(self._order)),
             eval_cost_usd=eval_cost_usd,
             exposure_by_env=dict(exposure_by_env),
             window_cost_usd=window_cost_usd,
+            delta_se_by_domain=delta_se,
         )

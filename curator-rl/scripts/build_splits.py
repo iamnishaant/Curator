@@ -29,7 +29,7 @@ from curator_rl.envs.splits import (  # noqa: E402
     assert_disjoint,
     assign_splits_finite,
     read_manifest_ids,
-    rewrite_manifest_index,
+    rebuild_manifest_index,
     write_manifests,
 )
 
@@ -135,7 +135,7 @@ def main() -> int:
         )
     )
     # countdown is procedural: no id manifests, only seed-range disjointness
-    rewrite_manifest_index(data_root, hashes)
+    rebuild_manifest_index(data_root)  # hashes every manifest incl. other environments'
 
     # 5. verify idempotency signal: reload via manifest readers
     sealed_ids = read_manifest_ids(data_root, "gsm8k", "test")

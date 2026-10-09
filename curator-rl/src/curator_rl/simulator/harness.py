@@ -46,11 +46,43 @@ class EpisodeResult:
     benchmark_evals: int
     round_logs: list[dict] = field(default_factory=list)
     calib_logs: list[dict] = field(default_factory=list)
+    report_logs: list[dict] = field(default_factory=list)
 
     @property
     def within_budget_tolerance(self) -> bool:
         """Overshoot is at most one round (Roadmap H.6)."""
         return self.total_cost_usd <= self.budget_usd * 1.5
+
+    def concentration(self, *, skip_rounds: int = 0) -> dict[str, float]:
+        """Allocation concentration over rounds after `skip_rounds` (D-67)."""
+        return weight_concentration(self.round_logs, skip_rounds=skip_rounds)
+
+
+def weight_concentration(round_logs: list[dict], *, skip_rounds: int = 0) -> dict[str, float]:
+    """Concentration diagnostics of the per-round mixtures (D-67).
+
+    - `mean_max_weight`: mean over rounds of the largest weight;
+    - `norm_entropy`: mean Shannon entropy divided by ln(N) (1 = uniform, 0 = one-hot);
+    - `frac_rounds_over_half`: share of rounds where one arm holds more than half.
+    """
+    rows = [log["weights"] for log in round_logs[skip_rounds:]]
+    if not rows:
+        return {"mean_max_weight": float("nan"), "norm_entropy": float("nan"),
+                "frac_rounds_over_half": float("nan"), "n_rounds": 0}
+    max_w, ent, over = [], [], 0
+    for w in rows:
+        vals = [max(v, 0.0) for v in w.values()]
+        n = len(vals)
+        max_w.append(max(vals))
+        over += max(vals) > 0.5
+        h = -sum(v * math.log(v) for v in vals if v > 0.0)
+        ent.append(h / math.log(n) if n > 1 else 1.0)
+    return {
+        "mean_max_weight": sum(max_w) / len(rows),
+        "norm_entropy": sum(ent) / len(rows),
+        "frac_rounds_over_half": over / len(rows),
+        "n_rounds": len(rows),
+    }
 
 
 def apply_scenario_constraints(
@@ -81,10 +113,12 @@ def run_episode(
     world = build_world(scenario, seed)
 
     calibration = scenario.calib
+    report_eval_every = scenario.report_eval.interval_rounds
     spend = 0.0
     prev_obs: RoundObservation | None = None
     logs: list[dict] = []
     calib_logs: list[dict] = []
+    report_logs: list[dict] = []
     exposure: dict[str, float] = {i: 0.0 for i in world._order}
     window_cost = 0.0
 
@@ -121,16 +155,28 @@ def run_episode(
         )
         if (
             calibration.enabled
+            and getattr(scheduler, "uses_calibration", False)
             and calibration.interval_rounds > 0
             and (round_t + 1) % calibration.interval_rounds == 0
         ):
+            request_fn = getattr(scheduler, "calibration_request", None)
+            request = request_fn() if callable(request_fn) else None
+            default_items = calibration.items_per_slice or scenario.world.benchmark_items
+            if request:
+                eval_cost = calibration.eval_cost_items(sum(request.values()))
+            else:
+                eval_cost = calibration.eval_cost(len(world._order), scenario.world.benchmark_items)
             calib_obs: CalibrationObservation = world.calibration_observation(
                 window_k=len(calib_logs) + 1,
                 exposure_by_env=dict(exposure),
                 window_cost_usd=window_cost,
-                eval_cost_usd=calibration.cost_usd,
+                eval_cost_usd=eval_cost,
+                paired=calibration.paired,
+                churn=calibration.churn,
+                n_items=default_items,
+                request=request,
             )
-            spend += calibration.cost_usd
+            spend += eval_cost
             scheduler.update_calibration(calib_obs)
             calib_logs.append(
                 {
@@ -139,11 +185,27 @@ def run_episode(
                     "score_total": calib_obs.score_total,
                     "se_total": calib_obs.se_total,
                     "eval_cost_usd": calib_obs.eval_cost_usd,
+                    "evaluated": sorted(calib_obs.score_by_domain),
                     "exposure_by_env": dict(calib_obs.exposure_by_env),
                 }
             )
             exposure = {i: 0.0 for i in world._order}
             window_cost = 0.0
+        if (
+            report_eval_every
+            and (round_t + 1) % report_eval_every == 0
+        ):
+            # uncharged reporting evaluation, identical protocol for every
+            # method (Roadmap L.4) — gives the score-vs-cost curve
+            score_r, se_r, _, _ = world.evaluate_benchmark(observed=True)
+            report_logs.append(
+                {
+                    "round": round_t + 1,
+                    "spend_usd": spend,
+                    "score": score_r,
+                    "se": se_r,
+                }
+            )
         if spend >= world.budget_usd:
             break
 
@@ -160,6 +222,7 @@ def run_episode(
         benchmark_evals=world.benchmark_evals,
         round_logs=logs,
         calib_logs=calib_logs,
+        report_logs=report_logs,
     )
 
 

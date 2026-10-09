@@ -23,6 +23,10 @@ Weights = dict[str, float]
 class BaseScheduler(ABC):
     """Common interface for every allocation method (Roadmap Part J)."""
 
+    # Roadmap H.6: calibration evaluations are run and charged ONLY for methods
+    # that use them (D-72). Subclasses that consume CalibrationObservation set it.
+    uses_calibration: bool = False
+
     def __init__(self, env_ids: Sequence[str]) -> None:
         if not env_ids:
             raise ValueError("a scheduler needs at least one environment")

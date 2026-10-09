@@ -3,7 +3,8 @@
 One `StatusClassifier` per environment. Priority when classifying from
 scratch: S1 > S5 > S3 > S4 > S2. Entry into S3/S4 requires the condition to
 hold for `consecutive_rounds` (h) rounds; S1 exits immediately when both
-minimums are met; S5 enters immediately on the mismatch streak reaching q
+minimums are met (an established S3/S4 arm is never demoted to S1 by evidence
+decay, D-51); S5 enters immediately on the mismatch streak reaching q
 windows and leaves after q' clean windows. Dwell (D_min completed rounds in
 a status) gates the exit from S3 and S4; leaving S1 and entering S5 are
 exempt (roadmap E.5); interpreted choices are logged as D-36/D-37.
@@ -108,21 +109,23 @@ class StatusClassifier:
     ) -> EnvStatus:
         cfg = self._cfg
 
-        # 1. S1 (highest priority; exits immediately when both minimums are met)
-        if s1_needed:
+        # 1. S1 keeps its E.5 priority over S5 for fresh arms, but evidence
+        # decay alone does NOT demote an established S3/S4 arm to S1 (D-51): a
+        # starved too-hard arm must not cycle S1 -> quota -> S4.
+        established = current in (EnvStatus.S3, EnvStatus.S4)
+        if s1_needed and not established:
             return EnvStatus.S1
 
-        # 2. S5 mismatch gates (enter exempt; leaves after q' clean windows)
+        # 2. S5 mismatch gates (enter exempt from anywhere; leaves after q' clean windows)
         if self._hot >= self._q_mis:
             return EnvStatus.S5
         if current == EnvStatus.S5 and self._clear < self._q_clear:
             return EnvStatus.S5
 
         # 3. incumbency of S3 / S4: leave only via the hysteresis rule + dwell.
-        # Once the leave rule fires (with dwell satisfied), classification falls
-        # through to the fresh rules *below*, which can never re-enter the same
-        # status from its own incumbent exit -- a forgetting spike leaves S3 to
-        # S2 even while p_lo is still high.
+        # Once the leave rule fires (with dwell satisfied), classification
+        # falls through to the fresh rules below -- a forgetting spike leaves
+        # S3 to S2 even while p_lo is still high.
         if current == EnvStatus.S3:
             leave = p_hat < cfg.p_sat - cfg.hysteresis_p or z_lp <= -cfg.z_neg
             if not leave or self._rounds_in_status < self._dwell:

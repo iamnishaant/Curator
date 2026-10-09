@@ -21,12 +21,16 @@ def _run_git(*args: str, cwd: Path) -> str | None:
             cwd=cwd,
             capture_output=True,
             text=True,
+            # git emits UTF-8; the locale codec (cp1252 on Windows) cannot decode
+            # characters such as 'ρ' or '≥' in a dirty-tree diff and left stdout None
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
-    if result.returncode != 0:
+    if result.returncode != 0 or result.stdout is None:
         return None
     return result.stdout.strip()
 

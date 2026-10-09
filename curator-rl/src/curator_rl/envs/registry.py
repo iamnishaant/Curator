@@ -38,6 +38,20 @@ def _make_countdown(repo_root: Path, data_cfg) -> Environment:
     return CountdownEnv(repo_root, data_cfg.envs.countdown)
 
 
+def _make_math35(repo_root: Path, data_cfg) -> Environment:
+    from curator_rl.envs.math35 import Math35Env
+
+    return Math35Env(repo_root, data_cfg.envs.math35)
+
+
+def _make_mbpp(repo_root: Path, data_cfg) -> Environment:
+    from curator_rl.envs.mbpp import MbppEnv
+
+    return MbppEnv(repo_root, data_cfg.envs.mbpp)
+
+
+_register("math35", _make_math35)
+_register("mbpp", _make_mbpp)
 _register("gsm8k", _make_gsm8k)
 _register("noisy", _make_noisy)
 _register("countdown", _make_countdown)

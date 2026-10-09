@@ -18,18 +18,22 @@ oracle:
   simplex_step: 0.1
 envs:
   - env_id: c1x
+    nominal_size: 6873   # declared, position-assigned (D-63)
     difficulty: 0.5
     eta: 0.012
     cost_usd_per_prompt: 0.0005
   - env_id: c2x
+    nominal_size: 7500   # declared, position-assigned (D-63)
     difficulty: 0.5
     eta: 0.012
     cost_usd_per_prompt: 0.001
   - env_id: c4x
+    nominal_size: 974   # declared, position-assigned (D-63)
     difficulty: 0.5
     eta: 0.012
     cost_usd_per_prompt: 0.002
   - env_id: c8x
+    nominal_size: 6873   # declared, position-assigned (D-63)
     difficulty: 0.5
     eta: 0.012
     cost_usd_per_prompt: 0.004

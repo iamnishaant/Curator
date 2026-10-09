@@ -88,6 +88,48 @@ def test_s3_oscillation_inside_hysteresis_yields_no_flips():
     assert flip_rate(trace) == 0.0
 
 
+def test_established_s3_is_not_demoted_to_s1_by_evidence_decay():
+    # D-51: a saturated arm that gets starved (n_groups_eff decays below the S1
+    # floor) stays S3 -- evidence decay alone must not send it back to S1.
+    cl = StatusClassifier(make_cfg(consecutive_rounds=2), mismatch_windows=2, clear_windows=2)
+    ok = dict(p=0.9, lo=0.88, hi=0.92, z=0.5, sr=0.0)
+    step(cl, p=0.5, seen=1)
+    step(cl, **ok)
+    step(cl, **ok)
+    assert cl.status == EnvStatus.S3
+    assert step(cl, **ok, groups=1.0) == EnvStatus.S3   # 1 << floor (n_min*0.5 = 4)
+
+
+def test_established_s4_is_not_demoted_to_s1_by_evidence_decay():
+    cl = StatusClassifier(make_cfg(consecutive_rounds=2, dwell_min=2), mismatch_windows=2, clear_windows=2)
+    args = dict(p=0.05, lo=0.03, hi=0.08, z=0.0, sr=0.05)
+    step(cl, p=0.5, seen=1)
+    step(cl, **args)
+    step(cl, **args)
+    assert cl.status == EnvStatus.S4
+    assert step(cl, **args, groups=0.5) == EnvStatus.S4  # starved too-hard arm stays S4
+
+
+def test_s5_overrides_an_established_s3():
+    # mismatch is enter-exempt from anywhere, including a saturated incumbent
+    cl = StatusClassifier(make_cfg(consecutive_rounds=2), mismatch_windows=1, clear_windows=2)
+    ok = dict(p=0.9, lo=0.88, hi=0.92, z=0.5, sr=0.0)
+    step(cl, p=0.5, seen=1)
+    step(cl, **ok)
+    step(cl, **ok)
+    assert cl.status == EnvStatus.S3
+    cl.set_mismatch(True)
+    assert step(cl, **ok) == EnvStatus.S5
+
+
+def test_s2_arm_still_reenters_s1_when_evidence_decays():
+    # the demotion exemption is for S3/S4 incumbents only; S2 keeps the E.5 rule
+    cl = StatusClassifier(make_cfg(), mismatch_windows=2, clear_windows=2)
+    step(cl, p=0.5, seen=1, groups=8.0)
+    assert step(cl, p=0.5, groups=8.0) == EnvStatus.S2
+    assert step(cl, p=0.5, groups=3.9) == EnvStatus.S1
+
+
 # S4 --------------------------------------------------------------------------
 
 def test_s4_entry_and_hysteresis_leave():

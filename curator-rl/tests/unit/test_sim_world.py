@@ -169,3 +169,17 @@ def test_sigmoid_matches_numpy():
 
     for x in (-4.0, -0.5, 0.0, 0.5, 4.0):
         assert abs(sigmoid(x) - 1.0 / (1.0 + np.exp(-x))) < 1e-12
+
+
+def test_observation_carries_group_advantage_sum():
+    """sum_abs_adv is bounded by the per-group maximum and zero for a pass-everything arm."""
+    from curator_rl.core.advantage import group_mean_abs_advantage
+
+    mixed = SimEnvParams(env_id="mixed", difficulty=0.0, eta=0.01, cost_usd_per_prompt=0.001)
+    easy = SimEnvParams(env_id="easy", difficulty=-12.0, eta=0.01, cost_usd_per_prompt=0.001)
+    world = make_world([mixed, easy])
+    obs = world.step_round({"mixed": 0.5, "easy": 0.5})
+    cap = group_mean_abs_advantage(world.G // 2, world.G)
+    m = obs.per_env["mixed"]
+    assert 0.0 < m.sum_abs_adv <= m.n_prompts * cap + 1e-9
+    assert obs.per_env["easy"].sum_abs_adv == 0.0       # p ~ 1: every group all-pass

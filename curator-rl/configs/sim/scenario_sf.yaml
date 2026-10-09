@@ -20,15 +20,18 @@ oracle:
   simplex_step: 0.1
 envs:
   - env_id: normal
+    nominal_size: 6873   # declared, position-assigned (D-63)
     difficulty: 0.5
     eta: 0.012
     cost_usd_per_prompt: 0.001
     transfer_out: {unlockable: 1.2}
   - env_id: unlockable
+    nominal_size: 7500   # declared, position-assigned (D-63)
     difficulty: 3.5      # p0 = sigmoid(-7) ~= 0.001; rises via transfer
     eta: 0.03
     cost_usd_per_prompt: 0.0015
   - env_id: filler
+    nominal_size: 974   # declared, position-assigned (D-63)
     difficulty: 1.0
     eta: 0.010
     cost_usd_per_prompt: 0.0008

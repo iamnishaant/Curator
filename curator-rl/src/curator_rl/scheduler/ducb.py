@@ -1,0 +1,266 @@
+"""Discounted-UCB scheduler backend (Roadmap E.6, v1 Phase 5).
+
+State per environment: discounted pull mass `Ñ_i` and discounted reward mass
+`Σ̃_i`, updated from the round's realised exposure (u = weights_used) and the
+SignalEngine's proxy reward r̄. Scores = μ̂ + κ·sqrt(ln(max(Ñ(t), e))/Ñ_i),
+then the E.6 mixture map (`mixture.scores_to_weights`) and the E.5 status
+constraints (`mixture.apply_status_constraints`).
+
+The scheduler owns its own `SignalEngine` (same L1 code Phase 4 validated) —
+signals are computed from the RoundObservations the trainer/harness delivers,
+never from hidden state. Deterministic; checkpointable (Part M item 13).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+
+from curator_rl.calibration.calibrator import CalibrationReport, Calibrator
+from curator_rl.calibration.cre import CalibratedRewardEngine
+from curator_rl.core.config import CalibCfg, CreCfg, ProxyCfg, SchedulerCfg, SignalsCfg
+from curator_rl.core.types import (
+    CalibrationObservation,
+    MixtureDecision,
+    RoundObservation,
+)
+from curator_rl.scheduler.base import BaseScheduler, validate_weights
+from curator_rl.scheduler.mixture import apply_status_constraints, scores_to_weights
+from curator_rl.signals.engine import SignalEngine
+
+
+class DiscountedUCB(BaseScheduler):
+    """D-UCB scoring + E.6 mixture map + E.5 status constraints (config-gated)."""
+
+    def __init__(
+        self,
+        env_ids,
+        signals_cfg: SignalsCfg,
+        proxy_cfg: ProxyCfg,
+        scheduler_cfg: SchedulerCfg,
+        calib_cfg: CalibCfg,
+        group_size: int,
+        *,
+        prompts_per_round: int | None = None,
+        cre_cfg: CreCfg | None = None,
+    ) -> None:
+        super().__init__(env_ids)
+        self.cfg = scheduler_cfg
+        self._engine = SignalEngine(
+            signals_cfg, proxy_cfg, calib_cfg,
+            scheduler_cfg.cost_exponent, group_size, env_ids,
+        )
+        self._n_hat = {e: 0.0 for e in self.env_ids}
+        self._s_hat = {e: 0.0 for e in self.env_ids}
+        self._round = 0
+        self._steps = 0
+        self._last_weights = {e: 1.0 / len(self.env_ids) for e in self.env_ids}
+        self._prompts_per_round = prompts_per_round
+        self.last_decision: MixtureDecision | None = None
+        self._latest_vectors: dict[str, object] = {}
+        # calibration (Roadmap Part I, D-73): proxy signal accumulated per window
+        self.uses_calibration = bool(calib_cfg.enabled)
+        self._calibrator = Calibrator(self.env_ids, calib_cfg) if calib_cfg.enabled else None
+        self._win_x = {e: 0.0 for e in self.env_ids}
+        self._win_u = {e: 0.0 for e in self.env_ids}
+        self.last_calibration: CalibrationReport | None = None
+        # Calibrated Reward Engine (D-76): only meaningful with calibration on
+        self._cre = (
+            CalibratedRewardEngine(self.env_ids, cre_cfg)
+            if (cre_cfg is not None and cre_cfg.enabled and calib_cfg.enabled)
+            else None
+        )
+        self._win_usd = {e: 0.0 for e in self.env_ids}   # dollars charged since last calibration
+        self._budget_total: float | None = None
+        self.cost_override: dict[str, float] | None = None  # privileged ablation (exact cost)
+        self.reward_log: list[dict[str, object]] = []        # per round: reward and its source
+
+    # ---------------------------------------------------------------- mixture
+
+    def select_mixture(self, observation: RoundObservation | None) -> dict[str, float]:
+        self._round += 1
+        if self._round <= self.cfg.warmup_rounds or observation is None:
+            weights = {e: 1.0 / len(self.env_ids) for e in self.env_ids}
+            self._last_weights = dict(weights)
+            self.last_decision = None
+            return weights
+
+        scores = self.compute_scores()
+        weights = scores_to_weights(
+            scores, self.cfg.tau, self.cfg.epsilon, list(self.env_ids),
+            score_norm=self.cfg.score_norm,
+        )
+        vectors = self._latest_vectors
+        if vectors and self.cfg.status_control != "off":
+            weights, intents = apply_status_constraints(
+                weights, vectors, self.cfg, n_min=self._n_min()
+            )
+        else:
+            intents = {e: "hold" for e in self.env_ids}
+        validate_weights(weights, self.env_ids)
+        self._last_weights = dict(weights)
+        self.last_decision = self._decision(weights, scores, vectors or {}, intents)
+        return weights
+
+    def _n_min(self) -> int:
+        return self._engine._signals_cfg.status.n_min  # noqa: SLF001 (same package)
+
+    def compute_scores(self) -> dict[str, float]:
+        """μ̂ + bonus per environment (Roadmap E.6); exposed for debugging.
+
+        The reward is already folded into Σ̃ (and thus μ̂) by
+        `update_observation`; scores need only the current counters.
+        """
+        total_n = sum(self._n_hat.values())
+        log_arg = math.log(max(total_n, math.e))
+        scores: dict[str, float] = {}
+        for e in self.env_ids:
+            n_i = max(self._n_hat[e], 1e-9)
+            mu_hat = self._s_hat[e] / n_i
+            bonus = self.cfg.exploration_coef * math.sqrt(log_arg / n_i)
+            scores[e] = mu_hat + bonus
+        return scores
+
+    def _decision(self, weights, scores, vectors, intents) -> MixtureDecision:
+        envs = list(self.env_ids)
+        total_n = sum(self._n_hat.values())
+        log_arg = math.log(max(total_n, math.e))
+        mu_hat, bonus = {}, {}
+        for e in envs:
+            n_i = max(self._n_hat[e], 1e-9)
+            mu_hat[e] = self._s_hat[e] / n_i
+            bonus[e] = self.cfg.exploration_coef * math.sqrt(log_arg / n_i)
+        quotas = (
+            _quotas(weights, self._prompts_per_round) if self._prompts_per_round else {}
+        )
+        return MixtureDecision(
+            round=self._round,
+            steps=self._steps,
+            weights=dict(weights),
+            ucb_scores={e: mu_hat[e] + bonus[e] for e in envs},
+            mu_hat=mu_hat,
+            bonus=bonus,
+            statuses={
+                e: getattr(vectors[e], "status_note", "warmup") if vectors else "warmup"
+                for e in envs
+            },
+            intents=intents,
+            quotas=quotas,
+            rng_hash=self.state_hash(),
+        )
+
+    # ----------------------------------------------------------------- updates
+
+    def update_observation(self, observation: RoundObservation) -> None:
+        vectors = self._engine.update(observation)
+        self._latest_vectors = vectors
+        self._steps = observation.steps
+        if self._budget_total is None:
+            self._budget_total = observation.budget_remaining_usd + observation.round_cost_usd
+        round_log: dict[str, object] = {"round": observation.round}
+        for env_id, env_obs in observation.per_env.items():
+            u = observation.weights_used.get(env_id, 0.0)
+            if self.cfg.pull_unit == "prompt":
+                u = u * max(env_obs.n_prompts, 0)
+            self._win_usd[env_id] += float(env_obs.cost_usd)
+            r_bar = float(vectors[env_id].proxy_reward)
+            source = "proxy"
+            if self._cre is not None and self._cre.active:
+                est = self._cre.estimate(
+                    env_id, float(vectors[env_id].proxy_raw), self._unit_cost(vectors[env_id]),
+                    self._budget_total or 0.0,
+                )
+                r_bar, source = est.reward, f"cre:{est.source}"
+                round_log[env_id] = {"r": r_bar, "src": source, "b": est.mean_per_usd,
+                                     "sd": est.sd_per_usd, "n": est.n_obs}
+            else:
+                round_log[env_id] = {"r": r_bar, "src": source}
+            self._n_hat[env_id] = self.cfg.gamma * self._n_hat[env_id] + u
+            self._s_hat[env_id] = self.cfg.gamma * self._s_hat[env_id] + u * r_bar
+            share = observation.weights_used.get(env_id, 0.0)
+            if share > 0.0:
+                self._win_x[env_id] += share * float(vectors[env_id].proxy_raw)
+                self._win_u[env_id] += share
+        self.reward_log.append(round_log)
+
+    def _unit_cost(self, sv) -> float:
+        if self.cost_override is not None and sv.env_id in self.cost_override:
+            return float(self.cost_override[sv.env_id])
+        return float(sv.unit_cost_usd)
+
+    def calibration_request(self) -> dict[str, int] | None:
+        """Slices (and items per slice) the next calibration should evaluate (D-75)."""
+        if self._calibrator is None:
+            return None
+        return self._calibrator.select_targets(self._win_u)
+
+    def update_calibration(self, observation: CalibrationObservation) -> None:
+        """One calibration window: credit, proxy-vs-benchmark test, S5 flags (D-73)."""
+        self._engine.update_calibration(observation)
+        if self._calibrator is None:
+            return
+        proxy_x = {
+            e: (self._win_x[e] / self._win_u[e] if self._win_u[e] > 0 else 0.0)
+            for e in self.env_ids
+        }
+        report = self._calibrator.observe(observation, proxy_x, self._win_usd)
+        self.last_calibration = report
+        if self._cre is not None:
+            costs = {e: (self.cost_override or {}).get(e, self._engine._unit_cost[e])  # noqa: SLF001
+                     for e in self.env_ids}
+            self._cre.ingest(report.span_gain, proxy_x, costs, ready=report.ready,
+                             window_k=report.window_k)
+        if report.ready:
+            for env_id in self.env_ids:
+                self._engine.set_calibration_mismatch(env_id, report.mismatch.get(env_id, False))
+        self._win_x = {e: 0.0 for e in self.env_ids}
+        self._win_u = {e: 0.0 for e in self.env_ids}
+        self._win_usd = {e: 0.0 for e in self.env_ids}
+
+    # ------------------------------------------------------------- checkpoints
+
+    def get_state(self) -> dict[str, object]:
+        return {
+            "round": self._round,
+            "steps": self._steps,
+            "n_hat": dict(self._n_hat),
+            "s_hat": dict(self._s_hat),
+            "last_weights": dict(self._last_weights),
+            "engine": self._engine.get_state(),
+            "win_x": dict(self._win_x),
+            "win_u": dict(self._win_u),
+            "calibrator": None if self._calibrator is None else self._calibrator.get_state(),
+            "win_usd": dict(self._win_usd),
+            "budget_total": self._budget_total,
+            "cre": None if self._cre is None else self._cre.get_state(),
+        }
+
+    def load_checkpoint(self, state) -> None:
+        self._round = int(state["round"])  # type: ignore[arg-type]
+        self._steps = int(state["steps"])  # type: ignore[arg-type]
+        self._n_hat = {e: float(v) for e, v in state["n_hat"].items()}  # type: ignore[union-attr]
+        self._s_hat = {e: float(v) for e, v in state["s_hat"].items()}  # type: ignore[union-attr]
+        self._last_weights = {e: float(v) for e, v in state["last_weights"].items()}  # type: ignore[union-attr]
+        self._engine.load_checkpoint(state["engine"])  # type: ignore[arg-type]
+        self._win_x = {e: float(v) for e, v in state.get("win_x", {}).items()} or {e: 0.0 for e in self.env_ids}  # type: ignore[union-attr]
+        self._win_u = {e: float(v) for e, v in state.get("win_u", {}).items()} or {e: 0.0 for e in self.env_ids}  # type: ignore[union-attr]
+        if self._calibrator is not None and state.get("calibrator") is not None:
+            self._calibrator.load_checkpoint(state["calibrator"])  # type: ignore[arg-type]
+        self._win_usd = {e: float(v) for e, v in state.get("win_usd", {}).items()} or {  # type: ignore[union-attr]
+            e: 0.0 for e in self.env_ids}
+        self._budget_total = state.get("budget_total")  # type: ignore[assignment]
+        if self._cre is not None and state.get("cre") is not None:
+            self._cre.load_checkpoint(state["cre"])  # type: ignore[arg-type]
+
+    def state_hash(self) -> str:
+        payload = json.dumps(
+            {"n": self._n_hat, "s": self._s_hat, "r": self._round}, sort_keys=True
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()[:12]
+
+
+def _quotas(weights: dict[str, float], m: int) -> dict[str, int]:
+    from curator_rl.core.quotas import largest_remainder_quotas
+
+    return largest_remainder_quotas(weights, m)

@@ -1,0 +1,14 @@
+{
+  "seeds": [
+    0,
+    19
+  ],
+  "scenario": "S-I",
+  "rounds_analysed": 685,
+  "std_mu_hat_across_arms": 0.16630335673819782,
+  "std_bonus_across_arms": 0.3286223421308556,
+  "mean_total_variation_between_weights": 0.023864299658553176,
+  "mean_corr_mu_hat_proxy_vs_cre": 0.7947832573663206,
+  "mean_max_weight_targeted": 0.26145634216486086,
+  "mean_max_weight_cre": 0.2559003134313195
+}

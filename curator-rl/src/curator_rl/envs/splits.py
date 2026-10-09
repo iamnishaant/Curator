@@ -77,6 +77,14 @@ def rewrite_manifest_index(data_root: Path, records: dict[str, str]) -> None:
     (base / "MANIFEST.sha256").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def rebuild_manifest_index(data_root: Path) -> dict[str, str]:
+    """Rewrite MANIFEST.sha256 from EVERY `*.txt` manifest present (several builders share it)."""
+    base = manifest_dir(data_root)
+    records = {p.name: _file_sha256(p) for p in sorted(base.glob("*.txt"))}
+    rewrite_manifest_index(data_root, records)
+    return records
+
+
 def verify_manifests(data_root: Path) -> list[str]:
     """Return the list of mismatches between MANIFEST.sha256 and the files."""
     index_path = manifest_dir(data_root) / "MANIFEST.sha256"
