@@ -24,8 +24,11 @@ def shrunk(scenario, budget_usd=0.6, max_rounds=60):
     return scenario.model_copy(update={"budget_usd": budget_usd, "max_rounds": max_rounds})
 
 
-def test_all_ten_scenarios_present():
-    assert len(SCENARIOS) == 10, f"expected S-A..S-J, found {[p.name for p in SCENARIOS]}"
+def test_all_scenarios_present():
+    """S-A..S-J plus the three refits of S-I/S-J from measured data (D-88)."""
+    names = [p.name for p in SCENARIOS]
+    assert len(SCENARIOS) == 13, f"expected S-A..S-J + 3 refits, found {names}"
+    assert {"scenario_si_r1.yaml", "scenario_si_r2.yaml", "scenario_sj_r.yaml"} <= set(names)
 
 
 def test_long_horizon_portfolio_scenarios_meet_the_horizon_rule():

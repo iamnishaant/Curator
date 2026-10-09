@@ -51,4 +51,20 @@ If no real price applies (Kaggle is free), set `usd_per_gpu_hour = 1.0` and repo
 | Step time at the real batch shape (P = 16, G = 8, 512 tokens), vLLM colocate | **42.2 s** (37–41 s per step; HF backend TBD) |
 | Calibration-eval time per item | TBD |
 | Unattributed fraction | TBD (needs the cost meter inside the trainer) |
-| Cost ordering sanity (code / long reasoning above GSM8K) | TBD (needs MBPP / MATH35) |
+| Cost ordering sanity (code / long reasoning above GSM8K) | MATH35 above GSM8K (2.67x), MBPP close to GSM8K (1.23x, verifier-bound); see section 7 |
+
+## 7. Measured in the Phase E cost probe (Kaggle T4, vLLM 0.31, G = 8, each env at its own cap; D-87)
+
+| Quantity | Qwen2.5-0.5B | Qwen2.5-1.5B |
+|---|---|---|
+| Generation s/prompt: gsm8k / math35 / mbpp / countdown / noisy | 0.524 / 1.403 / 0.317 / 0.535 / 0.526 | 1.100 / 3.213 / 0.845 / 0.706 / 1.072 |
+| Verifier s/prompt, MBPP (serial / 4-thread pool) | 1.298 / 0.328 | 1.238 / 0.314 |
+| Relative unit cost, gen + pooled verify (gsm8k = 1) | math35 2.67, mbpp 1.23, countdown 1.02, noisy 1.00 | math35 2.92, mbpp 1.05, countdown 0.64, noisy 0.97 |
+| Relative tokens per prompt (gsm8k = 1) | math35 1.88, mbpp 0.43, countdown 0.84, noisy 0.90 | math35 2.28, mbpp 0.52, countdown 0.30, noisy 0.92 |
+| GRPO step, HF backend (P = 16, 512 tokens) | 83.5 s (generation 52.0 s) | — |
+| GRPO step, vLLM colocate | 42.2 s (generation ≈ 8.4 s, update + sync ≈ 34 s) | — |
+| Training generation backend | **vLLM colocate** (D-87) | |
+| Training-cost bracket (update fully token-proportional .. half fixed) | math35 1.7-2.0x, mbpp 0.6-0.8x of gsm8k | |
+| Per-run estimate (60 rounds, R = 2) | 1.4-2.8 GPU-h | |
+
+The update dominates a vLLM step, so per-environment training cost is not the generation cost alone. Until the cost meter measures attribution (Gate 5), simulator refits use both ends of the bracket.

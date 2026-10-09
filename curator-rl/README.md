@@ -7,8 +7,8 @@ round which share of the GPU budget each environment gets. The aim is the highes
 when the budget runs out.
 
 > **Status (2026-10-10):** design, simulator, scheduler, baselines, calibration and all five
-> environments are built and tested (335 tests pass). Real-GPU measurements on Kaggle are under
-> way. GRPO training under CURATOR's control (Phase F) is next. Nothing after commit `2d3b40a`
+> environments are built and tested (335 tests pass). The Kaggle measurements are
+> done: the environment portfolio is accepted on real costs. GRPO training under CURATOR's control (Phase F) is next. Nothing after commit `2d3b40a`
 > is committed yet.
 
 ---
@@ -157,10 +157,11 @@ Pre-registered hypotheses H1–H7, with the plan for negative results, are in
 | Calibrated Reward Engine (CRE) | ✅ built, ❌ **not adopted** (two pre-registered nulls) |
 | Kaggle pilot: pass rates and costs, all 5 environments, 0.5B and 1.5B | ✅ (HF timing) |
 | GRPO step time with vLLM on T4 | ✅ 42.2 s per step (16 prompts × 8, 512 tokens) |
-| Per-environment cost under vLLM | ⏳ script ready (`scripts/kaggle_cost_probe.py`), run pending |
-| TRL GRPO smoke test (HF backend) | ⏳ failed on a Kaggle torchao conflict; fix in notebooks, re-run pending |
+| Per-environment cost under vLLM | ✅ spread 2.67x (MATH35 is the expensive arm), `reports/pilot/phase_e_cost_probe.md` |
+| TRL GRPO smoke test; HF vs vLLM step time | ✅ passes; 83.5 s (HF) vs 42.2 s (vLLM) per step, so vLLM is the training backend |
 | Cost meter, trainer adapter, ROI, LOO, visualisation | ⬜ empty packages (Phase F onward) |
-| Tests / lint | ✅ 335 passed, 1 skipped (POSIX-only) / ruff clean |
+| S-I / S-J refit from measured data, pre-registered re-evaluation (seeds 400–449) | ✅ primary criteria pass; Curator ranks 3rd behind LP and Standard UCB (D-88, D-89) |
+| Tests / lint | ✅ 346 passed, 1 skipped (POSIX-only) / ruff clean |
 
 ### Gates (`docs/GATES.md`)
 
@@ -168,9 +169,10 @@ Pre-registered hypotheses H1–H7, with the plan for negative results, are in
 |---|---|---|
 | 0 | Spec and scope frozen | ⏳ owner sign-off pending (tag `spec-v1` not yet created) |
 | 1 | Interface + 3 environments | ✅ |
-| 1B' | MATH, MBPP, too-hard arm | 🟡 built and verified; learnable-arm rule passes on 0.5B; cost spread pending vLLM measurement |
+| 1B' | MATH, MBPP, too-hard arm | ✅ portfolio rule passes on 0.5B (D-87) |
 | 2 | Simulator recovery | 🟡 criteria a–e pass on 50 evaluation seeds; dev target (oracle-gap closure ≥ 75%) not met (43%) |
-| 2'' | Beats SEC/DUMP-style bandits | ❌ fails on S-I (passes on S-C and S-J) |
+| 2'' | Beats SEC/DUMP-style bandits | ❌ on the placeholder S-I (passes on S-C and S-J) |
+| 2''-R | Gate 2'' on scenarios refit from measured data | ✅ passes in both cost brackets; caveats in D-89 |
 | 2''-CRE, 2''-κ | Calibrated reward engine variants | ❌ both pre-registered evaluations fail; line stopped |
 | 3–5 | Static GRPO works; Curator does not alter GRPO; cost verified | ⬜ need Phase F |
 | 6 | Calibration works | ❌ simulator part not met |
@@ -207,33 +209,74 @@ Pre-registered hypotheses H1–H7, with the plan for negative results, are in
   of seeds within 10% of the budget, but with 7.3% false flags. The configuration selected by the
   pre-registered rule detects it in 33% (S-I) and 10% (S-J) of seeds.
 - **Honest conclusion so far.** Feeding sparse measured gains back into the bandit does not
-  improve allocation in this simulator. S-I and S-J still use placeholder costs; they will be
-  refitted from real measurements.
+  improve allocation in this simulator.
+
+### Simulator refit from measured data (D-88, D-89)
+
+S-I and S-J were refit from the Kaggle measurements by `experiments/analysis/refit_scenarios.py`
+(`reports/analysis/refit_scenarios.md`):
+- **What the measurements set:**
+  - difficulties come from pass@1;
+  - unit costs in GPU-hours come from generation + pooled verification + the policy update. The
+    update's attribution is bracketed: R1 = fully token-proportional (3.46× spread), R2 = half
+    fixed (2.06×);
+  - the benchmark is a macro-average over domains with a test set.
+- **The group-polarisation parameter changed most.** The share of mixed groups fits a Beta-binomial
+  concentration of **κ = 2.14**, while the placeholder scenarios assumed 25. Real prompt groups are
+  far more often all-right or all-wrong.
+- **What is still assumed:** learning speeds and the GSM8K↔MATH35 transfer.
+
+Pre-registered evaluation, fresh seeds 400–449, frozen configs (`reports/gate2/refit_gate.md`):
+
+| Scenario | Uniform | Static | LP | Std UCB | SEC-style | DUMP-style | **CURATOR** | CURATOR, no calib. |
+|---|---|---|---|---|---|---|---|---|
+| S-I-R1 (cost spread 3.46×) | 0.291 | 0.290 | 0.330 | **0.330** | 0.292 | 0.292 | 0.319 | 0.323 |
+| S-I-R2 (cost spread 2.06×) | 0.290 | 0.290 | 0.331 | **0.335** | 0.292 | 0.291 | 0.320 | 0.316 |
+| S-J-R (equal costs) | 0.290 | 0.297 | **0.336** | 0.335 | 0.290 | 0.294 | 0.323 | 0.326 |
+
+- **The primary criteria pass.** CURATOR beats SEC-style and DUMP-style by +0.027 to +0.029 in
+  both cost brackets (CIs exclude 0). It does not underperform Uniform in the equal-cost twin.
+- **Why the learnability bandits lose.** They spend 35–36% of the budget on the noisy arm. With
+  realistic polarisation, the real environments have few mixed groups, while a random reward
+  always produces them. A mean-|advantage| signal therefore ranks the spurious arm highest.
+- **But CURATOR is not the best method.** LP and Standard UCB beat it by 0.011–0.014 in every
+  refit scenario.
+- **The gain is not cost-driven.** CURATOR gains as much over Uniform with equal costs.
+- **Calibration has no measurable effect.** The noisy arm reaches S5 in only 20–34% of seeds.
+- **These are reported as findings, not tuned away.** Any fix needs a new pre-registration (D-89).
 
 ### Real-model measurements (Kaggle Tesla T4, fp16)
 
-Pilot, Qwen2.5-0.5B-Instruct. HF generation, 64 dev prompts × 8 samples, 512 tokens, corrected
-sampling (`reports/pilot/phase_e_pilot.md`):
+Cost probe, Qwen2.5-0.5B-Instruct. vLLM generation (the training backend), 64 dev prompts × 8
+samples, each environment at its own token cap, verifier through 4 threads
+(`reports/pilot/phase_e_cost_probe.md`; the earlier HF-timed pilot is in `phase_e_pilot.md`):
 
-| env | pass@1 | pass@8 | mixed groups | tokens | truncated | rel. cost (HF) |
-|---|---|---|---|---|---|---|
-| gsm8k | 0.344 | 0.688 | 0.672 | 334 | 0.109 | 1.00× |
-| math35 | 0.117 | 0.344 | 0.344 | 464 | 0.613 | 1.07× |
-| mbpp | 0.183 | 0.500 | 0.483 | 136 | 0.013 | 1.32× |
-| countdown | 0.000 | 0.000 | 0.000 | 300 | 0.420 | 0.91× |
-| noisy | 0.344 | 0.984 | 0.984 | 299 | 0.043 | 1.01× |
+| env | cap | pass@1 | pass@8 | mixed groups | truncated | gen s/prompt | verify s/prompt (pool) | rel. cost | rel. tokens |
+|---|---|---|---|---|---|---|---|---|---|
+| gsm8k | 512 | 0.350 | 0.797 | 0.766 | 0.100 | 0.524 | 0.002 | 1.00× | 1.00× |
+| math35 | 1024 | 0.168 | 0.500 | 0.500 | 0.125 | 1.403 | 0.002 | **2.67×** | 1.88× |
+| mbpp | 512 | 0.194 | 0.483 | 0.467 | 0.000 | 0.317 | 0.328 | 1.23× | 0.43× |
+| countdown | 512 | 0.000 | 0.000 | 0.000 | 0.352 | 0.535 | 0.001 | 1.02× | 0.84× |
+| noisy | 512 | 0.373 | 1.000 | 1.000 | 0.064 | 0.526 | 0.002 | 1.00× | 0.90× |
 
-- **Model choice.** 0.5B has 3 learnable environments (pass@8 in [0.15, 0.85]), so Level 1 stays on
-  0.5B (D-86). 1.5B costs 1.7× more per prompt.
-- **Cost spread.** It is 1.45× under HF timing, below the 2× target. HF pads every batch to its
-  longest answer, though, and completion lengths actually differ 3.4×. The real spread is measured
-  under vLLM next (D-86).
+- **Portfolio accepted (D-87).** 3 learnable environments (pass@8 in [0.15, 0.85]); Countdown at
+  0/1,024 samples; cost spread **2.67×** (≥ 2× required). Level 1 stays on 0.5B; 1.5B costs about
+  2× more per prompt.
+- **MATH35 is the expensive arm** (long answers at a 1024 cap). MBPP is cheap to generate but
+  verifier-bound: 1.3 s per prompt serially, 0.33 s through 4 threads. The reward wrapper must
+  verify in parallel.
+- **The HF-timed pilot hid this.** HF `generate` runs each batch until its longest answer
+  finishes, which compressed the spread to 1.45× (D-86).
 - **Sampling bug confirmed.** GSM8K pass@1 rose from 0.20 to 0.34 once Qwen's default
   `top_k=20` and `repetition_penalty=1.05` were disabled (D-84).
-- **GRPO step time** (vLLM colocate, 16 prompts × 8, 512 tokens): **42.2 s**. That is
-  ≈ 1.4 GPU-hours per run at R = 2 steps per round, 60 rounds.
-- **MBPP verifier** costs ≈ 0.11 s per completion on Windows, so it must run in parallel during
-  training.
+- **GRPO step time** (16 prompts × 8, 512 tokens): **42.2 s with vLLM colocate vs 83.5 s with
+  HF**, so vLLM is the training backend. In a vLLM step the policy update and weight sync take about
+  34 of the 42 s, so per-environment *training* cost is bracketed at MATH35 1.7–2.0× and MBPP
+  0.6–0.8× of GSM8K until the cost meter measures it (Gate 5).
+- **Run cost.** About 1.4–2.8 GPU-hours per run (60 rounds, R = 2), depending on how much
+  MATH35 a method buys.
+- **TRL GRPO smoke test passes.** The reward function receives `completion_ids` and every dataset
+  column, and each prompt's G completions arrive contiguously.
 
 ## 6. Environments
 
@@ -241,7 +284,7 @@ sampling (`reports/pilot/phase_e_pilot.md`):
 |---|---|---|---|---|---|---|
 | `gsm8k` | grade-school math | openai/gsm8k | hash split | GSM8K test | numeric answer match | learnable, cheap |
 | `math35` | competition math | MATH levels 3–5, 5,582 problems | 4,982 / 300 / 300 | MATH-500 | conservative `\boxed{}` normaliser, no optional libraries | learnable, harder, long answers (cap 1024 tokens) |
-| `mbpp` | Python code | google-research-datasets/mbpp | 314 / 90 (official val.) / 60 | MBPP test (500) | sandboxed execution of **all** assertions (one shown in the prompt) | learnable, verifier-heavy |
+| `mbpp` | Python code | google-research-datasets/mbpp | 314 / 90 (official val.) / 60 | MBPP test (500) | sandboxed execution of **all** assertions (one shown in the prompt) | learnable, cheap to generate, verifier-bound |
 | `countdown` | arithmetic puzzle | procedural | seed ranges | seed range | expression check | zero-signal (too hard) arm for 0.5B |
 | `noisy` | GSM8K prompts | GSM8K train | train only | — | Bernoulli(0.35) reward, independent of the answer | spurious-reward probe |
 
@@ -301,7 +344,7 @@ Requires Python ≥ 3.11.
 ```bash
 pip install -e ".[dev]"      # or: make install
 make lint                    # ruff check .
-make test                    # pytest (335 pass, 1 POSIX-only skip on Windows)
+make test                    # pytest (346 pass, 1 POSIX-only skip on Windows)
 make smoke                   # init-run on configs/experiment/smoke.yaml
 ```
 
@@ -339,8 +382,8 @@ The GPU work runs on Kaggle (T4 × 2, 16 GB each, fp16 only, internet on).
 | Notebook | Measures | State |
 |---|---|---|
 | `kaggle_pilot.ipynb` | pass rates, advantage, tokens and HF-timed cost per environment, for 0.5B and 1.5B in parallel | ✅ done (`reports/pilot/`) |
-| `kaggle_step_probe.ipynb` | GRPO step time, HF backend and vLLM colocate | vLLM ✅ 42.2 s; HF number pending |
-| `kaggle_cost_probe.ipynb` | per-environment cost under vLLM at each environment's own token cap; verifier serial vs pool; plus the TRL smoke test and HF step time | ⏳ to run |
+| `kaggle_step_probe.ipynb` | GRPO step time, HF backend and vLLM colocate | ✅ vLLM 42.2 s, HF 83.5 s |
+| `kaggle_cost_probe.ipynb` | per-environment cost under vLLM at each environment's own token cap; verifier serial vs pool; plus the TRL smoke test and HF step time | ✅ done (`reports/pilot/phase_e_cost_probe.md`) |
 
 **Known pitfalls** (all handled in the notebooks):
 - **vLLM** pins its own torch. Install it in a separate environment with
@@ -375,7 +418,7 @@ metadata.
 ## 11. Research rules
 
 These rules are the reviewer in a one-person project. Every change is logged in
-`docs/DECISIONS.md` (D-1 … D-86).
+`docs/DECISIONS.md` (D-1 … D-89).
 
 - **Sealed test sets** (`data/test_sealed/`) are used exactly once, at the end. They are never
   bundled, uploaded or opened by any script; `evaluation/guard.py` and the bundle builder enforce
@@ -393,12 +436,12 @@ These rules are the reviewer in a one-person project. Every change is logged in
 
 | Step | Work | Output |
 |---|---|---|
-| 1 | Run `kaggle_cost_probe.ipynb` | Real per-environment costs under vLLM; MATH35 pass rate at 1024 tokens; TRL smoke test; HF step time |
-| 2 | Decide on the portfolio | If the cost spread is ≥ 2×, freeze the 5 environments. Otherwise add a costlier arm (longer MATH cap, or the Level 2 multi-turn tool environment) |
-| 3 | Refit S-I / S-J with measured costs and pass rates; re-run Gate 2'' on fresh seeds | Simulator matches reality |
-| 4 | **Phase F**: TRL trainer adapter, reward wrapper with parallel verifier pool, span-based cost meter, checkpoint and resume across Kaggle sessions | CURATOR driving real GRPO; Gates 3–5 |
-| 5 | Calibration on GPU, ROI leaderboard, leave-one-out | Gates 6, 7, 9 |
-| 6 | Tier-1 matrix: 5 paired seeds × methods at matched budget (≈ 125 GPU-h); then one sealed-test evaluation | Tests of H1–H6 |
+| ✅ | Cost probe, TRL smoke test, HF step time; portfolio frozen (D-87) | done |
+| ✅ | Refit S-I / S-J from measured data; pre-registered re-evaluation on seeds 400–449 (D-88, D-89) | Gate 2''-R passes; Curator 3rd behind LP and Std UCB |
+| 1 | Optional diagnosis on tuning seeds only: why discounting/status cost Curator vs Standard UCB, and why S5 detection stays low; any change goes through a new pre-registration and fresh seeds (500+) | Understanding, not tuning |
+| 2 | **Phase F**: TRL trainer adapter, reward wrapper with parallel verifier pool, span-based cost meter, checkpoint and resume across Kaggle sessions | CURATOR driving real GRPO; Gates 3–5 |
+| 3 | Calibration on GPU, ROI leaderboard, leave-one-out | Gates 6, 7, 9 |
+| 4 | Tier-1 matrix: 5 paired seeds × methods at matched budget (≈ 125 GPU-h); then one sealed-test evaluation | Tests of H1–H6 |
 
 Owner actions still open:
 - Confirm the proposed decisions D-52 … D-62 and sign off Gate 0 (tag `spec-v1`).
@@ -406,14 +449,17 @@ Owner actions still open:
 
 ## 13. Known limitations and open issues
 
-- **Simulator.** S-I and S-J use placeholder costs, and the simulator has no forgetting or
-  between-round interference, so it rewards near one-hot allocations (D-67).
-- **S-I.** CURATOR currently loses on S-I. Calibration was meant to fix this and has not yet done
-  so.
+- **Simulator.** The refit scenarios use measured pass rates, costs and group polarisation. They
+  still assume the learning speeds and the transfer, and the simulator has no forgetting or
+  between-round interference (D-67).
+- **CURATOR vs its simpler relatives.** On the refit scenarios, LP and Standard UCB beat full
+  CURATOR. Calibration does not yet improve allocation, and S5 catches the noisy arm in only
+  20–34% of seeds (D-89).
 - **α/β refit.** Refitting the proxy weights from calibration (with a trust region) is designed but
   not wired in. α = β = 0.5.
 - **Cost.**
-  - The unit-cost spread under the training backend is unmeasured.
+  - The share of the policy update in each environment's training cost is unmeasured (generation
+    and verification are measured). The cost meter in Phase F measures it (Gate 5).
   - The pilot's batch-to-batch CV (0.11–0.18 on some environments) mixes prompt content with
     noise. Repeatability must be checked on identical batches.
 - **Kaggle quota.** The weekly quota and whether 2 × T4 counts double are unverified.
@@ -427,7 +473,7 @@ Owner actions still open:
 | Document | Content |
 |---|---|
 | `docs/SPEC.md` | frozen contract: objective, splits, budget rule, notation, required hyperparameters, interfaces |
-| `docs/DECISIONS.md` | decision log D-1 … D-86 (plus proposed D-52 … D-62) |
+| `docs/DECISIONS.md` | decision log D-1 … D-89 (plus proposed D-52 … D-62) |
 | `docs/GATES.md` | every gate, its criteria, evidence and state |
 | `docs/EXPERIMENT_PROTOCOL.md` | seeds, margins (δ_S = 0.01), statistics |
 | `docs/COST_MODEL.md` | cost accounting and measured values |
@@ -450,4 +496,5 @@ Owner actions still open:
 | B | Kaggle pilot, TRL probe, vLLM step probe | step time 42.2 s; sampling bug found (D-83, D-84) |
 | C | SEC/DUMP-style baselines, fair tuning, S-I/S-J, Gate 2'' | wins S-C, loses S-I (D-68 … D-71) |
 | D | calibrator, targeted calibration, power study, CRE | CRE not adopted after two pre-registered nulls (D-72 … D-82) |
-| E | MATH35, MBPP, sandbox; second pilot | portfolio learnable on 0.5B; cost spread pending (D-85, D-86) |
+| E | MATH35, MBPP, sandbox; second pilot; vLLM cost probe | portfolio accepted on 0.5B, spread 2.67x, vLLM backend (D-85 … D-87) |
+| E+ | S-I/S-J refit from measured data; pre-registered re-evaluation | Gate 2''-R passes; Curator 3rd behind LP and Std UCB; κ = 2.14 polarisation (D-88, D-89) |

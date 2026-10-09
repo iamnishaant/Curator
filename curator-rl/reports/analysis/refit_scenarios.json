@@ -1,0 +1,78 @@
+{
+  "kappa": 2.14,
+  "kappa_per_env": {
+    "gsm8k": 2.57,
+    "math35": 2.48,
+    "mbpp": 1.52
+  },
+  "kappa_placeholder": 25.0,
+  "mixed_measured": {
+    "gsm8k": 0.766,
+    "math35": 0.5,
+    "mbpp": 0.467
+  },
+  "mixed_fitted": {
+    "gsm8k": 0.732,
+    "math35": 0.477,
+    "mbpp": 0.528
+  },
+  "mixed_at_placeholder_kappa": {
+    "gsm8k": 0.947,
+    "math35": 0.723,
+    "mbpp": 0.778
+  },
+  "difficulty": {
+    "gsm8k": 0.3095,
+    "math35": 0.7999,
+    "mbpp": 0.7121,
+    "countdown": 4.0
+  },
+  "p0": {
+    "gsm8k": 0.35,
+    "math35": 0.168,
+    "mbpp": 0.194,
+    "countdown": 0.0003
+  },
+  "unit_cost_gpu_hours": {
+    "R1": {
+      "gsm8k": 0.0007326388888888889,
+      "math35": 0.00149295,
+      "mbpp": 0.0004313736111111112,
+      "countdown": 0.0006415722222222223,
+      "noisy": 0.0006745416666666668
+    },
+    "R2": {
+      "gsm8k": 0.0007326388888888889,
+      "math35": 0.0012348777777777778,
+      "mbpp": 0.0005985340277777778,
+      "countdown": 0.0006884944444444445,
+      "noisy": 0.0007038680555555557
+    },
+    "S-J-R": 0.0007946152777777778
+  },
+  "relative_cost": {
+    "R1": {
+      "gsm8k": 1.0,
+      "math35": 2.038,
+      "mbpp": 0.589,
+      "countdown": 0.876,
+      "noisy": 0.921
+    },
+    "R2": {
+      "gsm8k": 1.0,
+      "math35": 1.686,
+      "mbpp": 0.817,
+      "countdown": 0.94,
+      "noisy": 0.961
+    }
+  },
+  "cost_spread_learnable": {
+    "R1": 3.461,
+    "R2": 2.063
+  },
+  "budget": {
+    "S-I-R1": 4.44985,
+    "S-I-R2": 4.43342,
+    "S-J-R": 4.44985
+  }
+}
