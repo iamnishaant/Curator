@@ -81,18 +81,34 @@ class Calibrator:
         self._span_usd = {e: 0.0 for e in self.env_ids}  # dollars charged to j over the same span
         self._x_sum = {e: 0.0 for e in self.env_ids}
         self._x_w = {e: 0.0 for e in self.env_ids}
+        self._age = {e: 0 for e in self.env_ids}         # windows since e's slice was last evaluated
         self._windows = 0                                # calibration windows observed
         self._c1_total = {e: 0.0 for e in self.env_ids}
 
     # ---------------------------------------------------------------- targeting
 
-    def select_targets(self, window_shares: Mapping[str, float]) -> dict[str, int]:
-        """Slices to evaluate at this calibration, with items per slice."""
+    def select_targets(self, window_shares: Mapping[str, float],
+                       window_claims: Mapping[str, float] | None = None) -> dict[str, int]:
+        """Slices to evaluate at this calibration, with items per slice.
+
+        `window_claims[e]` is the budget-weighted proxy claim of the window (sum over rounds of
+        share x proxy signal). `claim` ranks by it: where the proxy promises the most gain per
+        window is where a wrong proxy wastes the most, even if that arm is not the most funded.
+        `claim_stale` multiplies it by (1 + windows since the slice was last evaluated), so no
+        funded arm stays unchecked indefinitely.
+        """
         n = self._cfg.items_per_slice
+        mode = self._cfg.targeting
         with_slice = [e for e in self.env_ids if self._domain[e] is not None]
-        if self._cfg.targeting == "all" or not self._last_score:
+        if mode == "all" or not self._last_score:
             return {e: n for e in with_slice}
-        ranked = sorted(with_slice, key=lambda e: (-float(window_shares.get(e, 0.0)), e))
+        if mode == "exposure" or window_claims is None:
+            key = {e: float(window_shares.get(e, 0.0)) for e in with_slice}
+        else:
+            key = {e: max(float(window_claims.get(e, 0.0)), 0.0) for e in with_slice}
+            if mode == "claim_stale":
+                key = {e: v * (1.0 + self._age[e]) for e, v in key.items()}
+        ranked = sorted(with_slice, key=lambda e: (-key[e], e))
         return {e: n for e in ranked[: self._cfg.max_targets]}
 
     # ------------------------------------------------------------------ observe
@@ -100,6 +116,8 @@ class Calibrator:
     def observe(self, obs: CalibrationObservation, proxy_x: Mapping[str, float],
                 window_usd: Mapping[str, float] | None = None) -> CalibrationReport:
         shares = exposure_shares({e: obs.exposure_by_env.get(e, 0.0) for e in self.env_ids})
+        for e in self.env_ids:
+            self._age[e] += 1
         paired = obs.delta_se_by_domain or {}
         delta, dse, evaluated = {}, {}, []
         span_gain: dict[str, dict[str, float]] = {}
@@ -128,6 +146,7 @@ class Calibrator:
                                 "share": self._span_w[e]}
             self._span_w[e] = 0.0
             self._span_usd[e] = 0.0
+            self._age[e] = 0
             new_scores[d] = (s_now, se_now)
         for d, (s, se) in new_scores.items():
             self._last_score[d], self._last_se[d] = s, se
@@ -176,7 +195,7 @@ class Calibrator:
             "last_score": dict(self._last_score), "last_se": dict(self._last_se),
             "span_w": dict(self._span_w), "span_usd": dict(self._span_usd),
             "x_sum": dict(self._x_sum), "x_w": dict(self._x_w),
-            "windows": self._windows, "c1_total": dict(self._c1_total),
+            "windows": self._windows, "c1_total": dict(self._c1_total), "age": dict(self._age),
         }
 
     def load_checkpoint(self, state: Mapping[str, object]) -> None:
@@ -190,3 +209,4 @@ class Calibrator:
         self._x_w = {e: float(v) for e, v in state["x_w"].items()}  # type: ignore[union-attr]
         self._windows = int(state["windows"])  # type: ignore[arg-type]
         self._c1_total = {e: float(v) for e, v in state["c1_total"].items()}  # type: ignore[union-attr]
+        self._age = {e: int(v) for e, v in state.get("age", {}).items()} or {e: 0 for e in self.env_ids}  # type: ignore[union-attr]

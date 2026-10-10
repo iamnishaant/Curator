@@ -153,7 +153,7 @@ Pre-registered hypotheses H1–H7, with the plan for negative results, are in
 | Signal engine (pass rate, LP-B, richness, proxy, S1–S5 status) | ✅ |
 | Scheduler (D-UCB + mixture + status) and baselines (Uniform, Static, LP, Std UCB, SEC-style, DUMP-style) | ✅ |
 | Fair tuning of every adaptive method (8 configs each, one-SE rule) | ✅ |
-| Calibration (paired items, targeted, own-slice credit, S5) | ✅ built; power limited (Gate 6-sim ❌) |
+| Calibration (paired items, claim-targeted, own-slice credit, S5) | ✅ built; spurious-arm detection 78–86% after D-95 (Gate 6-sim ❌ as originally defined) |
 | Calibrated Reward Engine (CRE) | ✅ built, ❌ **not adopted** (two pre-registered nulls) |
 | Kaggle pilot: pass rates and costs, all 5 environments, 0.5B and 1.5B | ✅ (HF timing) |
 | GRPO step time with vLLM on T4 | ✅ 42.2 s per step (16 prompts × 8, 512 tokens) |
@@ -161,7 +161,7 @@ Pre-registered hypotheses H1–H7, with the plan for negative results, are in
 | TRL GRPO smoke test; HF vs vLLM step time | ✅ passes; 83.5 s (HF) vs 42.2 s (vLLM) per step, so vLLM is the training backend |
 | Cost meter, trainer adapter, ROI, LOO, visualisation | ⬜ empty packages (Phase F onward) |
 | S-I / S-J refit from measured data, pre-registered re-evaluation (seeds 400–449) | ✅ primary criteria pass; Curator ranks 3rd behind LP and Standard UCB (D-88, D-89) |
-| Tests / lint | ✅ 346 passed, 1 skipped (POSIX-only) / ruff clean |
+| Tests / lint | ✅ 349 passed, 1 skipped (POSIX-only) / ruff clean |
 
 ### Gates (`docs/GATES.md`)
 
@@ -173,6 +173,8 @@ Pre-registered hypotheses H1–H7, with the plan for negative results, are in
 | 2 | Simulator recovery | 🟡 criteria a–e pass on 50 evaluation seeds; dev target (oracle-gap closure ≥ 75%) not met (43%) |
 | 2'' | Beats SEC/DUMP-style bandits | ❌ on the placeholder S-I (passes on S-C and S-J) |
 | 2''-R | Gate 2'' on scenarios refit from measured data | ✅ passes in both cost brackets; caveats in D-89 |
+| H-γ1 | Curator without discounting | ❌ not adopted: large gains on the refit scenarios, but the no-regression check fails narrowly on S-A and S-D (D-92) |
+| H-claim | Calibration targets by proxy claim + staleness, 2 slices | ✅ adopted: spurious-arm detection 78–86% vs 25–32%, false flags ≤ 2.5%, cost 3.4% (D-95) |
 | 2''-CRE, 2''-κ | Calibrated reward engine variants | ❌ both pre-registered evaluations fail; line stopped |
 | 3–5 | Static GRPO works; Curator does not alter GRPO; cost verified | ⬜ need Phase F |
 | 6 | Calibration works | ❌ simulator part not met |
@@ -244,6 +246,65 @@ Pre-registered evaluation, fresh seeds 400–449, frozen configs (`reports/gate2
 - **The gain is not cost-driven.** CURATOR gains as much over Uniform with equal costs.
 - **Calibration has no measurable effect.** The noisy arm reaches S5 in only 20–34% of seeds.
 - **These are reported as findings, not tuned away.** Any fix needs a new pre-registration (D-89).
+
+### Diagnosis and the γ = 1 test (D-90 … D-92)
+
+**Diagnosis.** A 2⁵ factorial on tuning seeds 0–49 (`reports/analysis/refit_diagnosis.md`)
+switched each of CURATOR's components on and off.
+- **Discounting is what costs CURATOR.** Forgetting with γ = 0.95 loses 0.013–0.020. With
+  polarised groups the signals are noisy, and a 20-round memory throws information away.
+- **Cost normalisation pays only without discounting:** +0.016 when the cost spread is 3.46×, 0
+  when costs are equal.
+- **The proxy is partly fooled by the noisy arm.** Learning progress is barely detectable within 70
+  rounds, so the proxy runs mostly on richness, and the noisy arm has the highest richness.
+- **Calibration rarely looks at the noisy arm.** Targeted calibration evaluates the most-funded arm,
+  so the noisy slice is re-checked under once per run.
+
+**The γ = 1 test** (pre-registered, fresh seeds 500–549, `reports/gate2/gamma_gate.md`) changed
+only the discount.
+
+| Scenario | CURATOR (γ 0.95) | CURATOR (γ 1) | Std UCB | LP | SEC-style |
+|---|---|---|---|---|---|
+| S-I-R1 | 0.320 | **0.354** | 0.338 | 0.329 | 0.291 |
+| S-I-R2 | 0.324 | **0.343** | 0.339 | 0.334 | 0.290 |
+| S-J-R | 0.324 | **0.340** | 0.338 | 0.335 | 0.297 |
+
+- **What passed:** γ = 1 improves CURATOR by +0.017 to +0.034, beats SEC/DUMP-style by +0.05 to
+  +0.06, and beats Standard UCB in S-I-R1 (+0.016, CI > 0). It ties Standard UCB elsewhere.
+- **Why it was not adopted:** the pre-registered no-regression check on the original scenarios
+  failed narrowly. S-A and S-D show −0.003 and −0.004, with CIs reaching −0.012 against a −0.01
+  margin. 50 seeds were too few for that test, which is a design flaw in the pre-registration. The
+  rule still stands, so **γ stays 0.95**.
+- **Concentration caveat.** γ = 1 also concentrates allocation (max weight 0.67 vs 0.38), which
+  the simulator does not penalise.
+
+### Calibration targeting fix (D-93 … D-95)
+
+**Cause.** Targeted calibration evaluated the *most-funded* arm, usually GSM8K, so the noisy arm
+(high richness, flat learning progress) was re-checked under once per run.
+
+**Fix.** Two new targeting rules were designed, tuned on seeds 0–49 under a selection rule written
+beforehand, and confirmed once on fresh seeds 600–699 (100 seeds, `reports/gate2/claim_gate.md`):
+- `claim` ranks slices by the budget-weighted proxy claim (share × proxy signal);
+- `claim_stale` multiplies that by (1 + windows since the slice was last checked);
+- adopted: `claim_stale`, 2 slices per window.
+
+| Scenario | Noisy arm caught (S5), before → after | False-flag rate | Calibration cost | Score vs before |
+|---|---|---|---|---|
+| S-I-R1 | 0.25 → **0.86** | 0.020 | 3.4% | +0.006 [+0.002, +0.010] |
+| S-I-R2 | 0.32 → **0.81** | 0.025 | 3.3% | +0.004 [−0.000, +0.007] |
+| S-J-R | 0.31 → **0.78** | 0.022 | 3.3% | +0.006 [+0.002, +0.010] |
+
+- **What this supports:** detection of a spurious-reward environment (H4) works in the simulator,
+  with few false flags, and Gate 2'' still holds.
+- **What it does not:** the noisy arm's budget share falls only from 0.23 to 0.19, because S5
+  halves an arm's weight rather than removing it. The score gain is small. CURATOR is still not
+  better than Standard UCB or LP (−0.005 to 0 against UCB, −0.011 to −0.003 against LP).
+- **Exploratory:** with γ = 1 as well, CURATOR beats Standard UCB in S-I-R1 (+0.023) and ties
+  elsewhere, but false flags rise to 3–6.5%. No decision was attached.
+- **Reproducibility note:** `configs/base.yaml` now uses the adopted targeting. Earlier reports
+  (e.g. `refit_gate.md`, `cre_gate.md`) were produced with `exposure`/1 target and are not
+  regenerated; the `exposure` rule remains available as an ablation.
 
 ### Real-model measurements (Kaggle Tesla T4, fp16)
 
@@ -344,7 +405,7 @@ Requires Python ≥ 3.11.
 ```bash
 pip install -e ".[dev]"      # or: make install
 make lint                    # ruff check .
-make test                    # pytest (346 pass, 1 POSIX-only skip on Windows)
+make test                    # pytest (349 pass, 1 POSIX-only skip on Windows)
 make smoke                   # init-run on configs/experiment/smoke.yaml
 ```
 
@@ -408,7 +469,7 @@ Everything scientific lives in `configs/base.yaml`. Key frozen values:
 | Baselines (tuned, D-68) | UCB κ 0.5 / τ 0.3 · LP τ 0.75 · SEC α 0.1 / τ 0.4 · DUMP c 2.0 / τ 0.4 |
 | Signals | λ 0.9, LP-B with W = 10, richness `mixed`, Beta(1,1) prior, status n_min 64, p_sat 0.7, p_hard 0.05, z_up 1.5, h 4, dwell 3 |
 | Proxy | α 0.5, β 0.5, LP clip ±3 |
-| Calibration | enabled, K 10, k_min 2, z_mis 2.0, `targeting: exposure`, 1 target, 100 paired items per slice |
+| Calibration | enabled, K 10, k_min 2, z_mis 2.0, `targeting: claim_stale` (D-95), 2 targets, 100 paired items per slice |
 | CRE | `enabled: false` (not adopted) |
 | Batch shape | R (steps/round) 5 in the simulator, 2 planned on GPU · P 16 · G 8 |
 
@@ -418,7 +479,7 @@ metadata.
 ## 11. Research rules
 
 These rules are the reviewer in a one-person project. Every change is logged in
-`docs/DECISIONS.md` (D-1 … D-89).
+`docs/DECISIONS.md` (D-1 … D-95).
 
 - **Sealed test sets** (`data/test_sealed/`) are used exactly once, at the end. They are never
   bundled, uploaded or opened by any script; `evaluation/guard.py` and the bundle builder enforce
@@ -438,7 +499,9 @@ These rules are the reviewer in a one-person project. Every change is logged in
 |---|---|---|
 | ✅ | Cost probe, TRL smoke test, HF step time; portfolio frozen (D-87) | done |
 | ✅ | Refit S-I / S-J from measured data; pre-registered re-evaluation on seeds 400–449 (D-88, D-89) | Gate 2''-R passes; Curator 3rd behind LP and Std UCB |
-| 1 | Optional diagnosis on tuning seeds only: why discounting/status cost Curator vs Standard UCB, and why S5 detection stays low; any change goes through a new pre-registration and fresh seeds (500+) | Understanding, not tuning |
+| ✅ | Diagnosis on tuning seeds (D-90); pre-registered γ = 1 test on seeds 500–549 (D-91) | not adopted (D-92); γ stays 0.95 |
+| ✅ | Calibration targeting by proxy claim + staleness (D-93 … D-95) | adopted |
+| 1 | Optional, new pre-registrations on fresh seeds (≥ 700): re-test γ = 1 with a powered non-inferiority design; a harder S5 response than halving the weight; or let the GPU runs decide both | Optional |
 | 2 | **Phase F**: TRL trainer adapter, reward wrapper with parallel verifier pool, span-based cost meter, checkpoint and resume across Kaggle sessions | CURATOR driving real GRPO; Gates 3–5 |
 | 3 | Calibration on GPU, ROI leaderboard, leave-one-out | Gates 6, 7, 9 |
 | 4 | Tier-1 matrix: 5 paired seeds × methods at matched budget (≈ 125 GPU-h); then one sealed-test evaluation | Tests of H1–H6 |
@@ -453,8 +516,11 @@ Owner actions still open:
   still assume the learning speeds and the transfer, and the simulator has no forgetting or
   between-round interference (D-67).
 - **CURATOR vs its simpler relatives.** On the refit scenarios, LP and Standard UCB beat full
-  CURATOR. Calibration does not yet improve allocation, and S5 catches the noisy arm in only
-  20–34% of seeds (D-89).
+  CURATOR. The main cause is discounting (D-90). Removing it was not adopted because of an
+  underpowered no-regression test (D-92).
+- **Calibration and the noisy arm.** Calibration does not yet improve allocation. Targeting
+  rarely re-checks the noisy arm, S5 catches it in only 20–34% of seeds, and the richness term
+  rewards the noisy arm's always-mixed groups (D-89, D-90).
 - **α/β refit.** Refitting the proxy weights from calibration (with a trust region) is designed but
   not wired in. α = β = 0.5.
 - **Cost.**
@@ -473,7 +539,7 @@ Owner actions still open:
 | Document | Content |
 |---|---|
 | `docs/SPEC.md` | frozen contract: objective, splits, budget rule, notation, required hyperparameters, interfaces |
-| `docs/DECISIONS.md` | decision log D-1 … D-89 (plus proposed D-52 … D-62) |
+| `docs/DECISIONS.md` | decision log D-1 … D-95 (plus proposed D-52 … D-62) |
 | `docs/GATES.md` | every gate, its criteria, evidence and state |
 | `docs/EXPERIMENT_PROTOCOL.md` | seeds, margins (δ_S = 0.01), statistics |
 | `docs/COST_MODEL.md` | cost accounting and measured values |
@@ -498,3 +564,5 @@ Owner actions still open:
 | D | calibrator, targeted calibration, power study, CRE | CRE not adopted after two pre-registered nulls (D-72 … D-82) |
 | E | MATH35, MBPP, sandbox; second pilot; vLLM cost probe | portfolio accepted on 0.5B, spread 2.67x, vLLM backend (D-85 … D-87) |
 | E+ | S-I/S-J refit from measured data; pre-registered re-evaluation | Gate 2''-R passes; Curator 3rd behind LP and Std UCB; κ = 2.14 polarisation (D-88, D-89) |
+| E++ | factorial diagnosis; pre-registered γ = 1 test | discounting is the main cost; γ = 1 not adopted (power) (D-90 … D-92) |
+| E+++ | calibration targeting by proxy claim; pre-registered confirmation | adopted: spurious-arm detection 25–32% → 78–86% (D-93 … D-95) |

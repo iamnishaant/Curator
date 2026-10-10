@@ -193,7 +193,7 @@ class DiscountedUCB(BaseScheduler):
         """Slices (and items per slice) the next calibration should evaluate (D-75)."""
         if self._calibrator is None:
             return None
-        return self._calibrator.select_targets(self._win_u)
+        return self._calibrator.select_targets(self._win_u, self._win_x)
 
     def update_calibration(self, observation: CalibrationObservation) -> None:
         """One calibration window: credit, proxy-vs-benchmark test, S5 flags (D-73)."""

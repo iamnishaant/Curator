@@ -90,8 +90,8 @@ calib:
   z_mis: 2.0             # S5 mismatch threshold (standardised residual)
   mismatch_windows: 2    # q: consecutive windows to enter S5
   mismatch_clear_windows: 2
-  targeting: exposure    # all | exposure: evaluate only the slices of the most-funded arms (D-75)
-  max_targets: 1         # slices per calibration after a one-time all-slice baseline (D-75)
+  targeting: claim_stale # all | exposure | claim | claim_stale: which slices to evaluate (D-75; adopted D-95)
+  max_targets: 2         # slices per calibration after a one-time all-slice baseline (D-95)
   items_per_slice: 100   # paired items per evaluated slice
 
 # Calibrated Reward Engine (D-76). Disabled by default until the pre-registered Gate 2''

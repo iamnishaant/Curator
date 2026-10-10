@@ -161,8 +161,10 @@ class CalibCfg(_StrictModel):
     z_mis: float = Field(gt=0)
     mismatch_windows: int = Field(ge=1)
     mismatch_clear_windows: int = Field(ge=1)
-    targeting: Literal["all", "exposure"]  # which slices each calibration evaluates (D-75)
-    max_targets: int = Field(ge=1)         # slices per calibration when targeting = exposure
+    # which slices each calibration evaluates (D-75; claim rules D-93): exposure = most compute;
+    # claim = largest budget-weighted proxy claim (share x proxy signal); claim_stale = claim x (1 + age)
+    targeting: Literal["all", "exposure", "claim", "claim_stale"]
+    max_targets: int = Field(ge=1)         # slices per calibration when targeting is not "all"
     items_per_slice: int = Field(ge=1)     # paired items evaluated per targeted slice
 
 

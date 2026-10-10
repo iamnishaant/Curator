@@ -161,3 +161,42 @@ def test_span_gain_uses_compute_since_the_slice_was_last_evaluated():
     assert rep.gain_hat["a"] == pytest.approx(0.10)
     assert rep.evaluated == ("a", "b")
     assert rep.delta_by_domain["a"] == pytest.approx(0.10)
+
+
+def _claim_calibrator(mode, max_targets=1):
+    cfg = load_config(BASE_CFG).calib.model_copy(update={
+        "k_min": 1, "targeting": mode, "max_targets": max_targets, "items_per_slice": 50})
+    cal = Calibrator(["a", "b", "c"], cfg)
+    cal.observe(cobs(1, {"a": 0.3, "b": 0.3, "c": 0.3}), {"a": 0.5, "b": 0.5, "c": 0.5})   # baseline
+    return cal
+
+
+def test_claim_targeting_follows_the_proxy_claim_not_the_funding():
+    cal = _claim_calibrator("claim")
+    shares = {"a": 0.6, "b": 0.3, "c": 0.1}
+    claims = {"a": 0.10, "b": 0.30, "c": 0.05}          # b is not the most funded but claims the most
+    assert cal.select_targets(shares, claims) == {"b": 50}
+    assert _claim_calibrator("exposure").select_targets(shares, claims) == {"a": 50}
+    assert cal.select_targets(shares, None) == {"a": 50}  # no claims available: falls back to exposure
+    assert cal.select_targets(shares, {"a": -1.0, "b": -2.0, "c": 0.0}) == {"a": 50}   # negative claims count as 0: tie, env id
+    assert cal.select_targets(shares, {"a": -1.0, "b": -2.0, "c": 0.01}) == {"c": 50}
+
+
+def test_claim_stale_targeting_boosts_slices_that_have_not_been_checked():
+    cal = _claim_calibrator("claim_stale")
+    shares = {"a": 0.4, "b": 0.4, "c": 0.2}
+    claims = {"a": 0.20, "b": 0.15, "c": 0.15}
+    assert cal.select_targets(shares, claims) == {"a": 50}                     # all ages equal: plain claim
+    cal.observe(cobs(2, {"a": 0.31}, paired={"a": 0.01}), {"a": 0.5, "b": 0.5, "c": 0.5})   # only a evaluated
+    cal.observe(cobs(3, {"a": 0.32}, paired={"a": 0.01}), {"a": 0.5, "b": 0.5, "c": 0.5})
+    # a: age 0 -> 0.20; b: age 2 -> 0.15 x 3 = 0.45; c: age 2 -> 0.45 (ties go to the env id)
+    assert cal.select_targets(shares, claims) == {"b": 50}
+
+
+def test_calibrator_age_counter_survives_a_checkpoint():
+    cal = _claim_calibrator("claim_stale")
+    cal.observe(cobs(2, {"a": 0.31}, paired={"a": 0.01}), {"a": 0.5, "b": 0.5, "c": 0.5})
+    clone = _claim_calibrator("claim_stale")
+    clone.load_checkpoint(cal.get_state())
+    shares, claims = {"a": 0.4, "b": 0.4, "c": 0.2}, {"a": 0.2, "b": 0.15, "c": 0.15}
+    assert clone.select_targets(shares, claims) == cal.select_targets(shares, claims)
