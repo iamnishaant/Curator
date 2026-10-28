@@ -711,6 +711,13 @@ These were cited in code comments while Phase 5 was built but not logged. Dates 
 - Bug: `DiscountedUCB.get_state` did not save `_latest_vectors`, which the status layer reads at the next decision. A scheduler restored from a checkpoint therefore skipped its status constraints for one round: in the replay test, Countdown (status S4, too hard) got weight 0.02004 instead of being capped at the floor 0.02. This branch restores from per-round checkpoints after every lost session (D-98 run robustness), so every resumed Curator run had one round without status constraints; effects on finished runs are at most one round per resume and are not re-run.
 - Fix: the vectors are saved with the status as its string value and rebuilt on load (`scheduler/ducb.py`); old checkpoints without them load as before. New test `tests/unit/test_scheduler_checkpoint.py` replays recorded simulator observations through all seven schedulers, snapshots through JSON mid-run and requires identical mixtures after resume. Full suite: 478 passed, 44 skipped.
 
+## D-107 — Roadmap v4 (PROPOSED, pending owner confirmation)
+
+- Date: 2026-10-24. Document: `docs/ROADMAP_v4.md`. Written after the D-103 pre-registration and before any D-103 confirmation run; it does not change D-103's story rules.
+- Core kept fixed: outer-loop mixture only; discounted UCB on (alpha LP' + beta SR) / measured cost with floor and S1-S5; reward-health layers act on the mixture, never on the reward; one budget ledger; pre-registration. Every addition is a proxy feature, a status trigger or a charged trainer step, off by default.
+- Phases, each with its own pre-registration written before its first run: 0 finish D-103 (plus the clean-ceiling decision rule); 1 fault zoo F1-F6 and a key-consistency audit, measured first on a frozen completion bank (D-108, sim seeds 800-899; GPU D-109); 2 health-gated sequential question allocation (D-110); 3 per-arm gradient-sketch transfer feature and a TAC-lite baseline (D-111, sim seeds 900-999); 4 seed count from the measured across-seed SD, second model, budget dependence (D-112); 5 multi-turn tool-call arm for the cost lever (D-113); 6 `curator-health` command and adapters.
+- Exploratory input (tuning-free, from the measured 0.5B mixed-group rates; Monte Carlo, not a GPU result): the D-102 filter lifts the random-reward arm from ~18% of drawn questions to ~30% of trained groups under Uniform. To be checked against `uniform_q_s0` logs in Phase 0.
+
 ---
 
 # Roadmap v3 decisions (PROPOSED — pending owner confirmation; see `docs/ROADMAP_v3.md` §11)
